@@ -1,0 +1,226 @@
+{
+  "version": "1.0.0",
+  "description": "SQL安全验证规则配置",
+  "dangerous_keywords": [
+    "DROP",
+    "TRUNCATE",
+    "ALTER",
+    "CREATE",
+    "GRANT",
+    "REVOKE",
+    "EXEC",
+    "EXECUTE",
+    "SHOW",
+    "DESCRIBE"
+  ],
+  "allowed_sql_types": [
+    "SELECT",
+    "UPDATE",
+    "INSERT",
+    "DELETE"
+  ],
+  "forbidden_patterns": [
+    {
+      "pattern": ";\\s*\\w+",
+      "description": "检测SQL注入：分号后紧跟关键字",
+      "severity": "critical"
+    },
+    {
+      "pattern": "--.*$",
+      "description": "检测SQL注释注入",
+      "severity": "high"
+    },
+    {
+      "pattern": "/\\*.*\\*/",
+      "description": "检测多行注释注入",
+      "severity": "high"
+    },
+    {
+      "pattern": "union\\s+select",
+      "description": "检测UNION注入",
+      "severity": "critical"
+    },
+    {
+      "pattern": "\\bor\\s+\\d+\\s*=\\s*\\d+",
+      "description": "检测OR注入攻击",
+      "severity": "high"
+    },
+    {
+      "pattern": "\\band\\s+\\d+\\s*=\\s*\\d+",
+      "description": "检测AND注入攻击",
+      "severity": "high"
+    }
+  ],
+  "validation_rules": {
+    "SELECT": {
+      "max_return_rows": {
+        "threshold": 1000,
+        "action": "require_confirmation",
+        "message": "预计返回行数超过 {threshold} 行，建议添加 LIMIT 限制"
+      },
+      "forbidden_columns": {
+        "users": ["password", "password_hash", "salt", "api_key"],
+        "message": "查询不允许返回敏感字段: {columns}"
+      },
+      "require_where_for_large_tables": {
+        "enabled": true,
+        "threshold": 10000,
+        "message": "大表查询建议包含WHERE条件以避免全表扫描"
+      }
+    },
+    "UPDATE": {
+      "require_where": {
+        "enabled": true,
+        "exceptions": ["configuration", "settings"],
+        "message": "UPDATE语句建议包含WHERE条件"
+      },
+      "restricted_columns": {
+        "users": ["password", "id"],
+        "roles": ["id", "is_system"],
+        "message": "字段 {column} 受保护，不允许直接修改"
+      },
+      "max_updated_rows": {
+        "threshold": 1000,
+        "action": "require_confirmation",
+        "message": "预计更新行数超过 {threshold} 行"
+      }
+    },
+    "DELETE": {
+      "require_where": {
+        "enabled": true,
+        "exceptions": [],
+        "message": "DELETE语句必须包含WHERE条件"
+      },
+      "restricted_tables": {
+        "users": "不允许删除用户表记录，请使用软删除（设置status为inactive）",
+        "roles": "不允许删除角色表记录",
+        "message": "表 {table} 不允许执行DELETE操作"
+      },
+      "max_deleted_rows": {
+        "threshold": 100,
+        "action": "require_confirmation",
+        "message": "预计删除行数超过 {threshold} 行"
+      }
+    },
+    "INSERT": {
+      "required_columns": {
+        "users": ["username", "password"],
+        "roles": ["name"],
+        "products": ["sku", "name", "price"],
+        "message": "表 {table} 必须包含字段 {columns}"
+      },
+      "unique_columns": {
+        "users": ["username", "email"],
+        "roles": ["name"],
+        "products": ["sku"],
+        "message": "字段 {column} 有唯一约束，请检查值是否重复"
+      }
+    }
+  },
+  "data_type_rules": {
+    "enum_validators": {
+      "users.status": ["active", "inactive", "banned"],
+      "roles.is_system": [true, false, 0, 1],
+      "products.status": ["available", "out_of_stock", "discontinued"],
+      "orders.status": ["pending", "paid", "shipped", "completed", "cancelled"]
+    },
+    "range_validators": {
+      "products.price": {
+        "min": 0,
+        "max": 999999.99,
+        "message": "价格必须在 {min} 到 {max} 之间"
+      },
+      "products.stock": {
+        "min": 0,
+        "max": 999999,
+        "message": "库存必须在 {min} 到 {max} 之间"
+      },
+      "products.quantity": {
+        "min": 1,
+        "max": 9999,
+        "message": "数量必须在 {min} 到 {max} 之间"
+      }
+    },
+    "length_validators": {
+      "users.username": {
+        "min": 3,
+        "max": 50,
+        "message": "用户名长度必须在 {min} 到 {max} 之间"
+      },
+      "users.nickname": {
+        "max": 50,
+        "message": "昵称长度不能超过 {max}"
+      }
+    },
+    "pattern_validators": {
+      "users.email": {
+        "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+        "message": "邮箱格式不正确"
+      },
+      "users.username": {
+        "pattern": "^[a-zA-Z0-9_]+$",
+        "message": "用户名只能包含字母、数字和下划线"
+      },
+      "products.sku": {
+        "pattern": "^[A-Z0-9-]+$",
+        "message": "SKU只能包含大写字母、数字和连字符"
+      }
+    }
+  },
+  "cascading_checks": {
+    "users": {
+      "onDelete": {
+        "check": "SELECT COUNT(*) FROM orders WHERE user_id = {id}",
+        "message": "用户 {id} 存在关联订单，无法删除"
+      }
+    },
+    "categories": {
+      "onDelete": {
+        "check": "SELECT COUNT(*) FROM categories WHERE parent_id = {id}",
+        "message": "分类 {id} 存在子分类，无法删除"
+      }
+    },
+    "products": {
+      "onDelete": {
+        "check": "SELECT COUNT(*) FROM order_items WHERE product_id = {id}",
+        "message": "产品 {id} 存在订单记录，无法删除"
+      }
+    }
+  },
+  "audit_rules": {
+    "enabled": true,
+    "log_all_operations": true,
+    "log_high_risk_only": false,
+    "include_sql": true,
+    "include_user_context": true,
+    "include_validation_results": true
+  },
+  "permission_rules": {
+    "default_permission": "sql:execute",
+    "role_permissions": {
+      "administrator": ["sql:*"],
+      "admin": ["sql:execute", "sql:select", "sql:update", "sql:insert", "sql:delete"],
+      "manager": ["sql:execute", "sql:select", "sql:update"],
+      "user": ["sql:execute", "sql:select"],
+      "viewer": ["sql:select"]
+    },
+    "table_permissions": {
+      "users": {
+        "required": ["users:update", "users:delete"],
+        "default": "users:select"
+      },
+      "roles": {
+        "required": ["roles:update"],
+        "default": "roles:select"
+      },
+      "products": {
+        "required": ["products:update", "products:insert"],
+        "default": "products:select"
+      },
+      "orders": {
+        "required": ["orders:update", "orders:delete"],
+        "default": "orders:select"
+      }
+    }
+  }
+}

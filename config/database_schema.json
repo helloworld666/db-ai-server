@@ -1,0 +1,282 @@
+{
+  "database_name": "erack",
+  "database_type": "mysql",
+  "description": "ERack电子货架管理系统数据库Schema配置",
+  "metadata": {
+    "created_at": "2025-04-03",
+    "updated_at": "2025-04-03",
+    "version": "1.0.0"
+  },
+  "tables": [
+    {
+      "name": "sys_user",
+      "description": "用户表，存储系统用户的基本信息",
+      "columns": [
+        {
+          "name": "id",
+          "type": "int",
+          "primary_key": true,
+          "auto_increment": true,
+          "required": true,
+          "description": "主键"
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)",
+          "required": true,
+          "description": "用户名"
+        },
+        {
+          "name": "password",
+          "type": "varchar(255)",
+          "required": true,
+          "sensitive": true,
+          "description": "密码（加密存储，敏感字段）"
+        },
+        {
+          "name": "role_id",
+          "type": "int",
+          "description": "角色Id"
+        },
+        {
+          "name": "real_name",
+          "type": "varchar(255)",
+          "description": "用户真实名称"
+        },
+        {
+          "name": "enable",
+          "type": "tinyint",
+          "description": "是否可用：1-可用，0-不可用"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "sys_role",
+      "description": "角色表，存储系统角色信息",
+      "columns": [
+        {
+          "name": "id",
+          "type": "int",
+          "primary_key": true,
+          "auto_increment": true,
+          "required": true,
+          "description": "主键"
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)",
+          "required": true,
+          "description": "角色名"
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "description": "角色描述"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "permission",
+      "description": "角色权限配置表，存储角色与模块的权限映射",
+      "columns": [
+        {
+          "name": "id",
+          "type": "int",
+          "primary_key": true,
+          "auto_increment": true,
+          "required": true,
+          "description": "主键"
+        },
+        {
+          "name": "role_id",
+          "type": "int",
+          "description": "角色Id"
+        },
+        {
+          "name": "module_category",
+          "type": "varchar(50)",
+          "description": "模块分类"
+        },
+        {
+          "name": "module_name",
+          "type": "varchar(50)",
+          "description": "模块名称"
+        },
+        {
+          "name": "permission_name",
+          "type": "varchar(50)",
+          "description": "权限名称"
+        },
+        {
+          "name": "permission_code",
+          "type": "varchar(50)",
+          "description": "权限编码"
+        },
+        {
+          "name": "create_time",
+          "type": "datetime",
+          "description": "创建时间"
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "description": "更新时间"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "rack",
+      "description": "电子货架表，存储电子货架的配置信息",
+      "columns": [
+        {
+          "name": "id",
+          "type": "int",
+          "primary_key": true,
+          "auto_increment": true,
+          "required": true,
+          "description": "主键"
+        },
+        {
+          "name": "no",
+          "type": "varchar(50)",
+          "unique": true,
+          "description": "货架编号"
+        },
+        {
+          "name": "layers",
+          "type": "int",
+          "description": "货架层数"
+        },
+        {
+          "name": "slots",
+          "type": "int",
+          "description": "每层槽位数"
+        },
+        {
+          "name": "gateway_ip",
+          "type": "varchar(50)",
+          "required": true,
+          "unique": true,
+          "description": "网关ip地址"
+        },
+        {
+          "name": "etag_gateway_ip",
+          "type": "varchar(50)",
+          "unique": true,
+          "description": "电子标签网关地址"
+        },
+        {
+          "name": "etag_gateway_port",
+          "type": "int",
+          "description": "电子标签网关端口"
+        },
+        {
+          "name": "light_gateway_ip",
+          "type": "varchar(50)",
+          "unique": true,
+          "description": "信号灯网关ip"
+        },
+        {
+          "name": "light_gateway_port",
+          "type": "int",
+          "description": "信号灯网关端口"
+        },
+        {
+          "name": "state",
+          "type": "int",
+          "description": "状态"
+        },
+        {
+          "name": "enable",
+          "type": "tinyint(1)",
+          "description": "是否可用：1-可用，0-不可用"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "etag_address",
+      "description": "电子标签地址表，存储电子标签的地址映射关系",
+      "columns": [
+        {
+          "name": "id",
+          "type": "int",
+          "primary_key": true,
+          "auto_increment": true,
+          "required": true,
+          "description": "主键"
+        },
+        {
+          "name": "layer",
+          "type": "int",
+          "description": "所属货架层"
+        },
+        {
+          "name": "Slot",
+          "type": "int",
+          "description": "所属货架槽"
+        },
+        {
+          "name": "address",
+          "type": "int",
+          "description": "电子标签地址"
+        },
+        {
+          "name": "rack_id",
+          "type": "int",
+          "foreign_key": "rack(id)",
+          "description": "货架Id"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "alarm_log",
+      "description": "告警日志表，记录告警日志",
+      "columns": [
+        {
+          "name": "id",
+          "type": "int",
+          "primary_key": true,
+          "auto_increment": true,
+          "required": true,
+          "description": "主键"
+        },
+        {
+          "name": "task_id",
+          "type": "varchar(36)",
+          "description": "任务Id"
+        },
+        {
+          "name": "alarm_code",
+          "type": "varchar(30)",
+          "description": "告警代码"
+        },
+        {
+          "name": "res_code",
+          "type": "varchar(30)",
+          "description": "资源代码"
+        },
+        {
+          "name": "alarm_level",
+          "type": "tinyint",
+          "description": "告警级别"
+        },
+        {
+          "name": "content",
+          "type": "varchar(300)",
+          "description": "告警内容"
+        },
+        {
+          "name": "created_date",
+          "type": "timestamp",
+          "description": "创建时间"
+        }
+      ],
+      "indexes": []
+    }
+  ]
+}
