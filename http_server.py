@@ -9,6 +9,7 @@ import json
 import logging
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 try:
@@ -28,7 +29,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="DB-AI-Server HTTP API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """ lifespan 事件处理器 """
+    # 启动时初始化MCP客户端
+    await mcp_client.start()
+    yield
+    # 关闭时清理资源
+    if mcp_client.process:
+        mcp_client.process.terminate()
+        await mcp_client.process.wait()
+
+
+app = FastAPI(title="DB-AI-Server HTTP API", lifespan=lifespan)
 
 # 添加CORS支持
 app.add_middleware(
@@ -217,20 +231,6 @@ class MCPClient:
 
 
 mcp_client = MCPClient()
-
-
-@app.on_event("startup")
-async def startup_event():
-    """启动时初始化MCP客户端"""
-    await mcp_client.start()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """关闭时清理资源"""
-    if mcp_client.process:
-        mcp_client.process.terminate()
-        await mcp_client.process.wait()
 
 
 @app.post("/mcp/execute_sql")

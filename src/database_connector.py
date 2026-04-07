@@ -157,6 +157,42 @@ class DatabaseConnector:
             self.connection.close()
             self.connection = None
             logger.info("数据库连接已关闭")
+
+    def _convert_datetimes(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        将查询结果中的datetime对象转换为ISO格式字符串
+
+        Args:
+            rows: 查询结果行列表
+
+        Returns:
+            转换后的行列表
+        """
+        from datetime import datetime, date, time
+        from decimal import Decimal
+
+        converted_rows = []
+        for row in rows:
+            converted_row = {}
+            for key, value in row.items():
+                if isinstance(value, datetime):
+                    # datetime对象转为ISO格式字符串
+                    converted_row[key] = value.isoformat()
+                elif isinstance(value, date):
+                    # date对象转为ISO格式字符串
+                    converted_row[key] = value.isoformat()
+                elif isinstance(value, time):
+                    # time对象转为ISO格式字符串
+                    converted_row[key] = value.isoformat()
+                elif isinstance(value, Decimal):
+                    # Decimal转为float
+                    converted_row[key] = float(value)
+                else:
+                    # 其他类型保持不变
+                    converted_row[key] = value
+            converted_rows.append(converted_row)
+
+        return converted_rows
     
     def _ensure_connection(self) -> bool:
         """
@@ -186,15 +222,18 @@ class DatabaseConnector:
                 'success': False,
                 'error': '数据库连接失败',
                 'rows': [],
-                    'affected_rows': 0
-                }
+                'affected_rows': 0
+            }
 
         cursor = None
         try:
             cursor = self.connection.cursor()
 
             # 执行查询
-            cursor.execute(sql, params or ())
+            if params is None:
+                cursor.execute(sql)
+            else:
+                cursor.execute(sql, params)
 
             # 获取结果
             rows = cursor.fetchall()
@@ -202,6 +241,9 @@ class DatabaseConnector:
 
             # 获取列名
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
+
+            # 转换datetime对象为ISO格式字符串
+            rows = self._convert_datetimes(rows)
 
             # 获取字段注释信息
             column_comments = self._get_column_comments(sql, columns) if columns else {}
@@ -211,10 +253,10 @@ class DatabaseConnector:
             return {
                 'success': True,
                 'rows': rows,
-                'affectedRows': affected_rows,
+                'affected_rows': affected_rows,
                 'columns': columns,
-                'columnComments': column_comments,
-                'rowCount': len(rows)
+                'column_comments': column_comments,
+                'row_count': len(rows)
             }
 
         except Exception as e:
@@ -244,25 +286,27 @@ class DatabaseConnector:
         comments = {}
 
         try:
-            # 从SQL中提取表名
-            table_name = self._extract_table_name(sql)
+            # 从SQL中提取所有表名
+            table_names = self._extract_all_table_names(sql)
 
-            if not table_name:
+            if not table_names:
                 logger.info(f"无法从SQL中提取表名，返回空注释")
                 return comments
 
-            # 查询字段注释
+            # 查询所有相关表的字段注释
             comment_sql = """
-                SELECT COLUMN_NAME, COLUMN_COMMENT
+                SELECT TABLE_NAME, COLUMN_NAME, COLUMN_COMMENT
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME IN (%s)
             """
+            
+            # 构建IN语句的参数占位符
+            placeholders = ', '.join(['%s'] * len(table_names))
+            comment_sql = comment_sql.replace('IN (%s)', f'IN ({placeholders})')
 
             cursor = self.connection.cursor()
-            cursor.execute(comment_sql, (
-                self.connection_params['database'],
-                table_name
-            ))
+            params = [self.connection_params['database']] + table_names
+            cursor.execute(comment_sql, tuple(params))
             comment_rows = cursor.fetchall()
             cursor.close()
 
@@ -275,7 +319,7 @@ class DatabaseConnector:
                 if col_name in columns:
                     comments[col_name] = col_comment
 
-            logger.info(f"获取字段注释成功，共 {len(comments)} 个字段")
+            logger.info(f"获取字段注释成功，共查询 {len(table_names)} 个表，获取 {len(comments)}/{len(columns)} 个字段的注释")
 
         except Exception as e:
             logger.warning(f"获取字段注释失败: {e}")
@@ -299,10 +343,17 @@ class DatabaseConnector:
             sql = re.sub(r'--.*?\n', '', sql)
             sql = re.sub(r'/\*.*?\*/', '', sql, flags=re.DOTALL)
 
-            # 提取FROM和JOIN后的表名
-            # 匹配 FROM table_name 或 JOIN table_name
-            pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
-            matches = re.findall(pattern, sql, re.IGNORECASE)
+            # 处理子查询：先移除子查询部分
+            # 移除用括号括起来的子查询，但要小心嵌套括号
+            sql_without_subqueries = sql
+            # 简单的子查询移除逻辑，先匹配最外层的SELECT子查询
+            sql_without_subqueries = re.sub(r'\(SELECT.*?FROM.*?\)', '(SELECT ...)', sql_without_subqueries, flags=re.IGNORECASE|re.DOTALL)
+            
+            # 提取FROM和JOIN后的表名（支持表别名）
+            # 匹配: FROM table_name [AS] alias 或 JOIN table_name [AS] alias
+            # 改进的正则表达式：提取表名（排除别名）
+            pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?\b'
+            matches = re.findall(pattern, sql_without_subqueries, re.IGNORECASE)
 
             if matches:
                 # 返回第一个匹配的表名（主表）
@@ -313,6 +364,37 @@ class DatabaseConnector:
         except Exception as e:
             logger.warning(f"提取表名失败: {e}")
             return None
+    
+    def _extract_all_table_names(self, sql: str) -> List[str]:
+        """
+        从SQL语句中提取所有表名
+
+        Args:
+            sql: SQL语句
+
+        Returns:
+            表名列表
+        """
+        import re
+        
+        try:
+            # 移除注释
+            sql = re.sub(r'--.*?\n', '', sql)
+            sql = re.sub(r'/\*.*?\*/', '', sql, flags=re.DOTALL)
+
+            # 处理子查询：先移除子查询部分
+            sql_without_subqueries = sql
+            sql_without_subqueries = re.sub(r'\(SELECT.*?FROM.*?\)', '(SELECT ...)', sql_without_subqueries, flags=re.IGNORECASE|re.DOTALL)
+            
+            # 提取所有表名
+            pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?\b'
+            matches = re.findall(pattern, sql_without_subqueries, re.IGNORECASE)
+            
+            return list(set(matches)) if matches else []
+            
+        except Exception as e:
+            logger.warning(f"提取所有表名失败: {e}")
+            return []
     
     def execute_update(self, sql: str, params: Optional[tuple] = None) -> Dict[str, Any]:
         """
@@ -330,17 +412,20 @@ class DatabaseConnector:
             return {
                 'success': False,
                 'error': '数据库连接失败',
-                    'affected_rows': 0,
-                    'insert_id': None
-                }
+                'affected_rows': 0,
+                'insert_id': None
+            }
         
         cursor = None
         try:
             cursor = self.connection.cursor()
-            
+
             # 执行SQL
-            affected_rows = cursor.execute(sql, params or ())
-            
+            if params is None:
+                affected_rows = cursor.execute(sql)
+            else:
+                affected_rows = cursor.execute(sql, params)
+
             # 获取自增ID（仅对INSERT有效）
             insert_id = cursor.lastrowid if 'insert' in sql.lower() else None
             
@@ -351,8 +436,8 @@ class DatabaseConnector:
             
             return {
                 'success': True,
-                'affectedRows': affected_rows,
-                'insertId': insert_id
+                'affected_rows': affected_rows,
+                'insert_id': insert_id
             }
             
         except Exception as e:
@@ -496,9 +581,12 @@ class DatabaseConnector:
             
             for i, sql_item in enumerate(sql_list):
                 sql = sql_item.get('sql', '')
-                params = sql_item.get('params', ())
-                
-                affected_rows = cursor.execute(sql, params)
+                params = sql_item.get('params')
+
+                if params is None:
+                    affected_rows = cursor.execute(sql)
+                else:
+                    affected_rows = cursor.execute(sql, params)
                 results.append({
                     'index': i,
                     'success': True,

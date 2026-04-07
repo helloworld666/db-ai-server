@@ -9,9 +9,9 @@
 2026-04-03 11:09:03,614 - src.config_loader - WARNING - Config file not found: config\security_rules.json, using empty config
 2026-04-03 11:09:03,614 - src.config_loader - INFO - All configurations loaded successfully
 2026-04-03 11:09:03,614 - __main__ - INFO - db-ai-server MCP Server initialized successfully
-2026-04-03 11:09:03,627 - src.ollama_client - INFO - Available Ollama models: ['nomic-embed-text:latest', 'qwen2.5vl:7b', 'qwen3:8b', 'gpt-oss:20b', 'deepseek-r1:32b']
-2026-04-03 11:09:03,627 - src.ollama_client - WARNING - Model 'qwen3:8b' not found in available models
-2026-04-03 11:09:03,627 - src.ollama_client - INFO - Pull the model with: ollama pull qwen3:8b
+2026-04-03 11:09:03,627 - src.ollama_client - INFO - Available Ollama models: ['nomic-embed-text:latest', 'qwen2.5vl:7b', 'gemma-4-e4b-it', 'gpt-oss:20b', 'deepseek-r1:32b']
+2026-04-03 11:09:03,627 - src.ollama_client - WARNING - Model 'gemma-4-e4b-it' not found in available models
+2026-04-03 11:09:03,627 - src.ollama_client - INFO - Pull the model with: ollama pull gemma-4-e4b-it
 2026-04-03 11:09:03,627 - __main__ - INFO - ✓ Ollama connection successful
 2026-04-03 11:09:36,502 - __main__ - INFO - Server stopped by user
 2026-04-03 11:09:36,534 - asyncio - ERROR - Unclosed client session
@@ -27,8 +27,8 @@ client_session: <aiohttp.client.ClientSession object at 0x0000012997D12490>
 2026-04-03 11:09:43,974 - src.config_loader - WARNING - Config file not found: config\security_rules.json, using empty config
 2026-04-03 11:09:43,975 - src.config_loader - INFO - All configurations loaded successfully
 2026-04-03 11:09:43,975 - __main__ - INFO - db-ai-server MCP Server initialized successfully
-2026-04-03 11:09:43,990 - src.ollama_client - INFO - Available Ollama models: ['nomic-embed-text:latest', 'qwen2.5vl:7b', 'qwen3:8b', 'gpt-oss:20b', 'deepseek-r1:32b']
-2026-04-03 11:09:43,990 - src.ollama_client - INFO - Model 'qwen3:8b' is available
+2026-04-03 11:09:43,990 - src.ollama_client - INFO - Available Ollama models: ['nomic-embed-text:latest', 'qwen2.5vl:7b', 'gemma-4-e4b-it', 'gpt-oss:20b', 'deepseek-r1:32b']
+2026-04-03 11:09:43,990 - src.ollama_client - INFO - Model 'gemma-4-e4b-it' is available
 2026-04-03 11:09:43,990 - __main__ - INFO - ✓ Ollama connection successful
 2026-04-03 11:15:22,170 - __main__ - INFO - Server stopped by user
 2026-04-03 11:15:22,206 - asyncio - ERROR - Unclosed client session

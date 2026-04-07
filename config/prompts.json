@@ -11,6 +11,12 @@
       "如果用户请求不合理或存在歧义，在explanation字段中用中文说明",
       "对于查询操作，优先考虑可读性和性能，避免不必要的JOIN"
     ],
+    "pattern_matching": [
+      "模糊匹配优先使用LIKE，简单字符串匹配用LIKE '%value%'",
+      "多个固定值匹配使用OR连接：WHERE field LIKE '%value1%' OR field LIKE '%value2%' OR field LIKE '%value3%'",
+      "避免使用REGEXP正则表达式，除非用户明确要求使用正则表达式",
+      "如果使用REGEXP，必须使用正确的正则语法，用竖线分隔多个值：REGEXP '(value1|value2|value3)'"
+    ],
     "select_rules": [
       "SELECT查询应明确指定需要的字段，避免SELECT *（除非有明确需求）",
       "对于sys_user表，自动排除password等敏感字段",

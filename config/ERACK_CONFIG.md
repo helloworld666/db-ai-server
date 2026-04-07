@@ -172,7 +172,7 @@ python src/mcp_server.py
 
 确保以下服务已启动：
 1. MySQL 数据库（erack）已创建并运行
-2. Ollama 服务（http://localhost:11434）已启动
+2. Ollama 服务（http://127.0.0.1:62666）已启动
 3. db-ai-server 已启动
 
 ## 配置文件位置

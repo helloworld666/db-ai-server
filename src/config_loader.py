@@ -76,27 +76,58 @@ class ConfigLoader:
     def get(self, key: str, default: Any = None) -> Any:
         """
         获取配置值
-        
+
         Args:
-            key: 配置键，支持点号分隔的路径，如 'server.ollama.model'
+            key: 配置键，支持点号分隔的路径，如 'server.inference_engine.type'
             default: 默认值
-        
+
         Returns:
             配置值
         """
         keys = key.split('.')
+
+        # 首先尝试直接在 _cache 中查找（支持顶级键，如 'inference_engine.type'）
+        if len(keys) >= 1:
+            first_key = keys[0]
+            # 在所有缓存的配置字典中查找第一个键
+            for config_name, config_value in self._cache.items():
+                if isinstance(config_value, dict) and first_key in config_value:
+                    value = config_value
+                    # 继续遍历剩余的键
+                    for k in keys:
+                        if isinstance(value, dict):
+                            value = value.get(k)
+                        else:
+                            value = None
+                            break
+                        if value is None:
+                            break
+                    if value is not None:
+                        return value
+
+        # 旧方法：在 _cache 中查找（支持 'server.ollama.model' 这样的路径）
         value = self._cache
-        
         for k in keys:
             if isinstance(value, dict):
                 value = value.get(k)
             else:
-                return default
-            
+                break
             if value is None:
-                return default
-        
-        return value
+                break
+
+        if value is not None:
+            return value
+
+        return default
+
+    def get_inference_config(self) -> Dict[str, Any]:
+        """
+        获取推理引擎配置（统一配置）
+
+        Returns:
+            推理引擎配置字典
+        """
+        return self.get('inference_engine', {})
     
     def reload(self):
         """重新加载所有配置"""

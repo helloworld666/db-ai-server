@@ -53,8 +53,44 @@ python --version  # 需要Python 3.10+
 pip install -r requirements.txt
 ```
 
-### 2. 配置Ollama
+### 2. 配置推理引擎
 
+db-ai-server 支持多种 AI 推理引擎，包括 **LM Studio**（推荐）和 **Ollama**。
+
+#### 方式1：使用 LM Studio（推荐）
+
+LM Studio 提供图形化界面，易于配置和调试。
+
+**安装 LM Studio：**
+1. 从 [lmstudio.ai](https://lmstudio.ai/) 下载并安装
+2. 搜索并下载 `gemma-4-e4b-it` 模型
+3. 点击 "Chat" 按钮启动推理引擎
+4. 确保 "Server" 设置正确：
+   - 端口: `62666`
+   - CORS: `*`
+   - 启用 "OpenAI Compatible API"
+
+**配置文件：**
+```json
+{
+  "inference_engine": {
+    "type": "lmstudio",
+    "base_url": "http://127.0.0.1:62666/v1",
+    "model": "gemma-4-e4b-it",
+    "timeout": 120,
+    "max_retries": 3,
+    "temperature": 0.1,
+    "num_ctx": 4096,
+    "num_predict": 2048
+  }
+}
+```
+
+#### 方式2：使用 Ollama
+
+Ollama 是命令行工具，适合生产环境。
+
+**安装 Ollama：**
 ```bash
 # 访问 https://ollama.com/ 下载并安装Ollama
 
@@ -62,10 +98,64 @@ pip install -r requirements.txt
 ollama serve
 
 # 拉取推荐模型
-ollama pull qwen3:8b
+ollama pull gemma-4-e4b-it
 # 或使用其他模型
 ollama pull llama3.2:3b
-ollama pull deepseek-coder-v2-lite:latest
+ollama pull qwen2.5:7b
+```
+
+**配置文件：**
+```json
+{
+  "inference_engine": {
+    "type": "ollama",
+    "base_url": "http://127.0.0.1:11434/api",
+    "model": "gemma-4-e4b-it",
+    "timeout": 120,
+    "max_retries": 3,
+    "temperature": 0.1,
+    "num_ctx": 4096,
+    "num_predict": 2048
+  }
+}
+```
+
+#### 切换推理引擎
+
+只需修改 `config/server_config.json` 中的 `inference_engine.type` 字段：
+- `"lmstudio"` - 使用 LM Studio
+- `"ollama"` - 使用 Ollama
+
+修改后重启 db-ai-server 即可。
+
+#### 推理引擎对比
+
+| 特性 | LM Studio | Ollama |
+|------|-----------|---------|
+| 配置便捷性 | ⭐⭐⭐⭐⭐ GUI 界面 | ⭐⭐⭐ 命令行 |
+| 模型管理 | ⭐⭐⭐⭐⭐ 内置市场 | ⭐⭐⭐ CLI 命令 |
+| API 兼容性 | ⭐⭐⭐⭐⭐ OpenAI | ⭐⭐⭐ 自定义 |
+| 资源占用 | 中等 | 较低 |
+| 推荐场景 | 开发、测试 | 生产环境 |
+
+#### 配置参数说明
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `type` | 推理引擎类型：`lmstudio` 或 `ollama` | `lmstudio` |
+| `base_url` | 推理引擎 API 地址 | `http://127.0.0.1:62666/v1` / `http://127.0.0.1:11434/api` |
+| `model` | 模型名称 | `gemma-4-e4b-it` |
+| `timeout` | 请求超时时间（秒） | 120 |
+| `max_retries` | 最大重试次数 | 3 |
+| `temperature` | 温度参数（0-1，越低越确定） | 0.1 |
+| `num_ctx` | 上下文窗口大小 | 4096 |
+| `num_predict` | 最大生成长度 | 2048 |
+
+#### 测试推理引擎连接
+
+```bash
+cd e:/develop/db-ai-server
+python test_engine.py
 ```
 
 ### 3. 配置数据库连接
@@ -269,6 +359,7 @@ Content-Type: application/json
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
 namespace ERack.Common;
@@ -281,6 +372,7 @@ public class DbAiService(HttpClient httpClient, ILogger<DbAiService> logger)
     private readonly JsonSerializerOptions jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
     private const string GENERATE_SQL_URL = "http://localhost:8080/mcp/generate_sql";
@@ -342,12 +434,25 @@ public class DbAiService(HttpClient httpClient, ILogger<DbAiService> logger)
     /// </summary>
     public class SqlExecutionResponse
     {
+        [JsonPropertyName("success")]
         public bool Success { get; init; }
+        
+        [JsonPropertyName("rows")]
         public List<Dictionary<string, object>> Rows { get; init; } = new();
+        
+        [JsonPropertyName("affected_rows")]
         public int AffectedRows { get; init; }
+        
+        [JsonPropertyName("columns")]
         public List<string>? Columns { get; init; }
+        
+        [JsonPropertyName("column_comments")]
         public Dictionary<string, string>? ColumnComments { get; init; }
+        
+        [JsonPropertyName("row_count")]
         public int RowCount { get; init; }
+        
+        [JsonPropertyName("error")]
         public string? Error { get; init; }
     }
 }
@@ -489,12 +594,102 @@ AND TABLE_NAME = '表名'
 - [x] HTTP桥接服务器
 - [x] 字段注释查询
 - [x] 驼峰命名JSON响应
+- [x] LM Studio 支持
+- [x] 统一推理引擎配置
 - [ ] 支持更多数据库类型（PostgreSQL, Oracle等）
 - [ ] 支持流式响应
 - [ ] Web管理界面
 - [ ] 操作审计日志
 - [ ] SQL执行回滚
 - [ ] 多模型切换
+
+## 🔧 故障排除
+
+### 问题1: "Failed to connect to inference engine"
+
+**原因**: 推理引擎未启动或端口不正确
+
+**解决方法**:
+1. 检查 LM Studio/Ollama 是否运行
+2. 检查配置中的 `base_url` 是否正确
+3. 检查防火墙设置
+4. 运行 `python test_engine.py` 测试连接
+
+### 问题2: "No valid JSON found in AI response"
+
+**原因**: 推理引擎返回了无效的响应
+
+**解决方法**:
+1. 降低 `temperature` 参数（设为 0.0 或 0.1）
+2. 检查模型是否支持 JSON 输出
+3. 查看 `logs/mcp_server.log` 中的完整错误信息
+4. 调整提示词，明确要求只返回 JSON
+
+### 问题3: "Model not found"
+
+**原因**: 指定的模型未加载
+
+**解决方法**:
+- LM Studio: 在应用中加载对应模型
+- Ollama: 使用 `ollama pull` 下载模型
+
+### 问题4: 响应很慢
+
+**原因**: 模型太大或机器性能不足
+
+**解决方法**:
+1. 使用更小的模型（如 `gemma-2b-it`）
+2. 减少 `num_predict` 值
+3. 增加 `timeout` 时间
+4. 检查 GPU 加速是否启用
+
+## ⚡ 性能优化
+
+### LM Studio 优化
+
+1. **量化**: 使用量化模型减少内存占用
+2. **GPU 加速**: 确保正确配置了 CUDA/Metal
+3. **上下文大小**: 根据需要调整 `num_ctx`
+
+### Ollama 优化
+
+1. **量化**: 使用 `OLLAMA_NUM_GPU` 环境变量
+2. **批处理**: 调整 `OLLAMA_NUM_THREAD`
+3. **缓存**: 启用模型缓存
+
+### 推荐模型
+
+根据您的硬件配置选择合适的模型：
+
+| 显存 | 推荐模型 | 说明 |
+|------|----------|------|
+| RTX 4060 8GB | Qwen2.5-7B-Instruct | 中文优秀，SQL生成精准 |
+| 4GB | Llama 3.2-3B-Instruct / Phi-3-mini | 轻量快速 |
+| 12GB+ | Llama 3.1-8B / Qwen2.5-14B | 更高质量输出 |
+
+## 📊 监控与日志
+
+### 查看服务器状态
+
+```bash
+# 通过 API 查询
+curl http://localhost:8080/mcp/get_server_status
+
+# 或在 ERack 中
+# 菜单 "通用查询" -> "AI查询" -> 查看状态
+```
+
+### 查看详细日志
+
+```bash
+tail -f db-ai-server/logs/mcp_server.log
+```
+
+日志会记录：
+- 推理引擎连接状态
+- SQL 生成和执行过程
+- AI 原始响应（前500字符）
+- 错误和警告信息
 
 ## 🤝 贡献
 

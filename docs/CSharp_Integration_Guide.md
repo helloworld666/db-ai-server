@@ -198,6 +198,13 @@ namespace ERack.Services.DbAi
         public List<string>? Columns { get; set; }
 
         /// <summary>
+        /// 字段注释字典（用于DataGrid列头显示）
+        /// 格式：{字段名: 注释}
+        /// </summary>
+        [JsonPropertyName("column_comments")]
+        public Dictionary<string, string>? ColumnComments { get; set; }
+
+        /// <summary>
         /// 返回行数（SELECT操作）
         /// </summary>
         [JsonPropertyName("row_count")]
@@ -732,6 +739,141 @@ var response = await _dbAiService.GenerateSqlAsync(query);
    - 检查Ollama模型大小，考虑使用更小的模型
    - 增加Ollama的num_ctx参数（上下文长度）
    - 检查网络连接
+
+4. **DataGrid列头显示英文而不是中文**
+   - 问题描述：当查询"system角色的功能模块访问权限"时，返回结果的DataGrid列头显示的是英文的列头，而不是中文的字段注释。
+   - 问题原因：C#客户端没有使用服务器返回的字段注释(`column_comments`)来设置DataGrid列头。
+   - 服务器端返回数据格式：
+     ```json
+     {
+       "success": true,
+       "rows": [...],
+       "affected_rows": 0,
+       "columns": ["id", "module_category", "module_name", "permission_name", "permission_code"],
+       "column_comments": {
+         "id": "主键",
+         "module_category": "模块分类",
+         "module_name": "模块名称",
+         "permission_name": "权限名称",
+         "permission_code": "权限编码"
+       },
+       "row_count": 3
+     }
+     ```
+   - 解决方案：
+     1. **更新数据模型**：确保`SqlExecutionResponse`类包含`ColumnComments`属性：
+        ```csharp
+        public class SqlExecutionResponse
+        {
+            [JsonPropertyName("success")]
+            public bool Success { get; set; }
+            
+            [JsonPropertyName("rows")]
+            public List<Dictionary<string, object>> Rows { get; set; } = new();
+            
+            [JsonPropertyName("affected_rows")]
+            public int AffectedRows { get; set; }
+            
+            [JsonPropertyName("columns")]
+            public List<string>? Columns { get; set; }
+            
+            [JsonPropertyName("column_comments")]
+            public Dictionary<string, string>? ColumnComments { get; set; }
+            
+            [JsonPropertyName("row_count")]
+            public int RowCount { get; set; }
+            
+            [JsonPropertyName("error")]
+            public string? Error { get; set; }
+        }
+        ```
+     
+     2. **更新DataGrid绑定逻辑**：在显示查询结果时，使用字段注释作为列头：
+        ```csharp
+        // 假设 result 是 SqlExecutionResponse 对象
+        if (result.Success && result.Rows.Count > 0)
+        {
+            // 清空DataGrid
+            dataGrid.Columns.Clear();
+            
+            // 添加列
+            if (result.Columns != null)
+            {
+                foreach (var columnName in result.Columns)
+                {
+                    // 获取字段注释，如果没有则使用字段名
+                    string columnHeader = columnName;
+                    if (result.ColumnComments != null && 
+                        result.ColumnComments.TryGetValue(columnName, out var comment) &&
+                        !string.IsNullOrEmpty(comment))
+                    {
+                        // 格式：注释内容 (字段名)
+                        columnHeader = $"{comment} ({columnName})";
+                    }
+                    
+                    // 创建列（这里使用DataGridTextColumn作为示例）
+                    var column = new DataGridTextColumn
+                    {
+                        Header = columnHeader,
+                        Binding = new Binding($"[{columnName}]")
+                    };
+                    
+                    dataGrid.Columns.Add(column);
+                }
+            }
+            
+            // 绑定数据
+            dataGrid.ItemsSource = result.Rows;
+        }
+        ```
+     
+     3. **备用方案：使用字段名映射**：如果某些字段没有注释，可以提供一个默认的字段名映射：
+        ```csharp
+        private Dictionary<string, string> GetDefaultColumnHeaders()
+        {
+            return new Dictionary<string, string>
+            {
+                { "id", "ID" },
+                { "name", "名称" },
+                { "real_name", "真实姓名" },
+                { "role_id", "角色ID" },
+                { "enable", "是否启用" },
+                { "module_category", "模块分类" },
+                { "module_name", "模块名称" },
+                { "permission_name", "权限名称" },
+                { "permission_code", "权限编码" },
+                { "created_date", "创建时间" },
+                { "update_time", "更新时间" }
+            };
+        }
+
+        // 在获取列头时使用
+        string GetColumnHeader(string columnName, SqlExecutionResponse result)
+        {
+            // 1. 优先使用服务器返回的字段注释
+            if (result.ColumnComments != null && 
+                result.ColumnComments.TryGetValue(columnName, out var comment) &&
+                !string.IsNullOrEmpty(comment))
+            {
+                return $"{comment} ({columnName})";
+            }
+            
+            // 2. 使用默认映射
+            var defaultHeaders = GetDefaultColumnHeaders();
+            if (defaultHeaders.TryGetValue(columnName, out var defaultHeader))
+            {
+                return defaultHeader;
+            }
+            
+            // 3. 最后使用字段名
+            return columnName;
+        }
+        ```
+     
+   - **测试验证**：修复后，测试以下查询：
+     1. "查询所有用户" - 应显示中文列头
+     2. "查询system角色的功能模块访问权限" - 应显示中文列头
+     3. "查询所有货架" - 应显示中文列头
 
 ## 最佳实践
 

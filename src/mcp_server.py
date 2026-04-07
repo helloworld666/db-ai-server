@@ -30,6 +30,7 @@ except ImportError:
 
 from src.config_loader import get_config_loader
 from src.ollama_client import OllamaClient
+from src.lmstudio_client import LMStudioClient
 from src.schema_manager import SchemaManager
 from src.database_connector import DatabaseConnector
 
@@ -54,28 +55,48 @@ logger = logging.getLogger(__name__)
 # 全局变量
 server: Optional[Server] = None
 ollama_client: Optional[OllamaClient] = None
+lmstudio_client: Optional[LMStudioClient] = None
+ai_client = None  # 通用的 AI 客户端（OllamaClient 或 LMStudioClient）
 schema_manager: Optional[SchemaManager] = None
 db_connector: Optional[DatabaseConnector] = None
 
 
 def initialize_server():
     """初始化服务器组件"""
-    global server, ollama_client, schema_manager, db_connector
-    
+    global server, ollama_client, lmstudio_client, ai_client, schema_manager, db_connector
+
     # 加载配置
     logger.info("Initializing db-ai-server MCP Server...")
-    
+
     config_loader = get_config_loader()
-    ollama_config = config_loader.get_ollama_config()
-    
-    # 初始化Ollama客户端
-    ollama_client = OllamaClient(
-        base_url=ollama_config.get('base_url', 'http://localhost:11434/api'),
-        model=ollama_config.get('model', 'qwen3:8b'),
-        timeout=ollama_config.get('timeout', 120),
-        max_retries=ollama_config.get('max_retries', 3)
-    )
-    
+
+    # 获取推理引擎配置（统一配置）
+    engine_config = config_loader.get_inference_config()
+    engine_type = engine_config.get('type', 'lmstudio')
+    logger.info(f"Using inference engine: {engine_type}")
+    logger.info(f"Base URL: {engine_config.get('base_url')}")
+    logger.info(f"Model: {engine_config.get('model')}")
+
+    if engine_type == 'lmstudio':
+        # 初始化 LM Studio 客户端
+        lmstudio_client = LMStudioClient(
+            base_url=engine_config.get('base_url'),
+            model=engine_config.get('model'),
+            timeout=engine_config.get('timeout', 120),
+            max_retries=engine_config.get('max_retries', 3)
+        )
+        ai_client = lmstudio_client
+
+    else:
+        # 默认使用 Ollama 客户端
+        ollama_client = OllamaClient(
+            base_url=engine_config.get('base_url'),
+            model=engine_config.get('model'),
+            timeout=engine_config.get('timeout', 120),
+            max_retries=engine_config.get('max_retries', 3)
+        )
+        ai_client = ollama_client
+
     schema_manager = SchemaManager(config_loader)
     
     # 初始化数据库连接器（如果配置了连接字符串）
@@ -264,9 +285,9 @@ async def _handle_generate_sql(arguments: Dict[str, Any]) -> list:
     # 构建提示词
     prompt = _build_sql_prompt(query, user_context)
 
-    # 调用Ollama生成SQL
-    ai_response = await ollama_client.generate(prompt)
-    logger.info(f"Ollama原始响应: {ai_response[:500]}")  # 记录前500字符用于调试
+    # 调用AI生成SQL
+    ai_response = await ai_client.generate(prompt)
+    logger.info(f"AI原始响应: {ai_response[:500]}")  # 记录前500字符用于调试
 
     # 解析响应
     response_data = _parse_ai_response(ai_response)
@@ -384,17 +405,17 @@ async def _handle_get_status() -> list:
             "description": config_loader.get('server.description'),
             "started_at": datetime.now().isoformat()
         },
-        "ollama": {
-            "model": config_loader.get('ollama.model'),
-            "base_url": config_loader.get('ollama.base_url'),
-            "connected": ollama_client.is_connected if ollama_client else False
-        },
+        "inference_engine": config_loader.get_inference_config(),
         "database": {
             "database_name": config_loader.get('database_schema.database_name'),
             "database_type": config_loader.get('database_schema.database_type'),
             "tables_count": len(config_loader.get('database_schema.tables', []))
         }
     }
+
+    # 添加连接状态
+    if 'inference_engine' in status:
+        status['inference_engine']['connected'] = ai_client.is_connected if ai_client else False
 
     return [TextContent(
         type="text",
@@ -416,6 +437,13 @@ def _build_sql_prompt(query: str, user_context: Dict[str, Any]) -> str:
     instructions = config_loader.get('prompts.instructions.general', [])
     for instruction in instructions:
         prompt_parts.append(f"- {instruction}")
+
+    # 模式匹配规则
+    pattern_rules = config_loader.get('prompts.instructions.pattern_matching', [])
+    if pattern_rules:
+        prompt_parts.append("\n## 模式匹配规则")
+        for rule in pattern_rules:
+            prompt_parts.append(f"- {rule}")
     
     # 数据库Schema
     prompt_parts.append("\n" + schema_manager.format_schema_for_prompt())
@@ -427,13 +455,24 @@ def _build_sql_prompt(query: str, user_context: Dict[str, Any]) -> str:
         prompt_parts.append(f"角色: {user_context.get('role', 'N/A')}")
         if 'permissions' in user_context:
             prompt_parts.append(f"权限: {', '.join(user_context['permissions'])}")
-    
+
     # 输出格式
     prompt_parts.append("\n## 输出格式要求")
-    prompt_parts.append("请严格按照以下JSON格式返回结果：")
-    output_format = config_loader.get('prompts.output_format', {})
-    prompt_parts.append(json.dumps(output_format, ensure_ascii=False, indent=2))
-    
+    prompt_parts.append("重要：请直接返回一个JSON对象，包含以下字段，不要包含任何说明文字、不要嵌套在template字段中：")
+    prompt_parts.append(json.dumps({
+      "sql": "生成的SQL语句（必需，必须是一个完整的、可直接执行的SQL语句）",
+      "sql_type": "SQL类型，值为'SELECT'/'UPDATE'/'INSERT'/'DELETE'（必需）",
+      "affected_tables": "受影响的表名列表（必需）",
+      "estimated_rows": "预估影响行数（必需，如果无法预估填-1）",
+      "risk_level": "风险等级，值为'low'/'medium'/'high'/'critical'（必需）",
+      "explanation": "操作的中文说明（必需）",
+      "require_confirmation": "是否需要用户确认（布尔值，必需）",
+      "warnings": "警告信息列表（可选，数组）",
+      "query_type": "查询类型，SELECT操作可选值：'simple'/'join'/'aggregate'/'subquery'（仅SELECT需要）",
+      "suggestions": "优化建议列表（可选，数组）"
+    }, ensure_ascii=False, indent=2))
+    prompt_parts.append("\n注意：sql字段是必需的，必须包含完整的SQL语句，不能为空或null。")
+
     # 用户查询
     prompt_parts.append(f"\n## 用户查询\n{query}")
     
@@ -445,30 +484,94 @@ def _parse_ai_response(ai_response: str) -> Dict[str, Any]:
     import re
 
     try:
-        # 提取JSON部分
-        json_start = ai_response.find('{')
-        json_end = ai_response.rfind('}') + 1
+        # 尝试提取所有完整的JSON对象
+        # 使用正则表达式匹配从 { 到 } 的完整JSON对象
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        json_matches = re.findall(json_pattern, ai_response, re.DOTALL)
 
-        if json_start >= 0 and json_end > json_start:
-            json_str = ai_response[json_start:json_end]
-            result = json.loads(json_str)
+        if not json_matches:
+            # 如果没有匹配到，尝试简单的find方法作为备选
+            json_start = ai_response.find('{')
+            json_end = ai_response.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                json_matches = [ai_response[json_start:json_end]]
+            else:
+                raise ValueError("No valid JSON found in AI response")
 
-            # 检查是否有嵌套的template字段（Ollama可能返回这种格式）
-            if "template" in result and isinstance(result["template"], dict):
-                result = result["template"]
+        # 解析所有找到的JSON对象，选择最完整的那个
+        best_result = None
+        best_score = -1
 
-            # 确保必需字段存在
-            required_fields = ["sql", "sql_type", "affected_tables", "estimated_rows", "risk_level", "explanation", "require_confirmation"]
-            for field in required_fields:
-                if field not in result:
-                    result[field] = None
+        for json_str in json_matches:
+            try:
+                result = json.loads(json_str)
 
-            return result
-        else:
-            raise ValueError("No valid JSON found in AI response")
+                # 检查是否有嵌套的template字段（Ollama可能返回这种格式）
+                if "template" in result and isinstance(result["template"], dict):
+                    result = result["template"]
+
+                # 计算完整性评分（包含的关键字段越多，分数越高）
+                required_fields = ["sql", "sql_type", "affected_tables", "estimated_rows", "risk_level", "explanation", "require_confirmation"]
+                score = sum(1 for field in required_fields if field in result and result[field] is not None)
+
+                # 如果有sql字段且不为空，给予额外加分
+                if result.get("sql"):
+                    score += 10
+                # 如果sql字段存在但为None或空字符串，给予少量加分（比完全没有好）
+                elif "sql" in result:
+                    score += 1
+
+                logger.info(f"找到JSON对象，完整性评分: {score}, 内容预览: {json_str[:100]}")
+
+                if score > best_score:
+                    best_score = score
+                    best_result = result
+            except json.JSONDecodeError:
+                # 跳过无效的JSON
+                continue
+
+        if best_result is None:
+            raise ValueError("No valid JSON object found in AI response")
+
+        # 检查是否有有效的SQL
+        if not best_result.get("sql"):
+            logger.warning(f"AI响应未生成有效的SQL语句，选择的JSON对象评分: {best_score}")
+            logger.warning(f"选中的JSON内容: {json.dumps(best_result, ensure_ascii=False)}")
+
+            # 返回错误响应
+            return {
+                "sql": "",
+                "sql_type": "UNKNOWN",
+                "affected_tables": [],
+                "estimated_rows": -1,
+                "risk_level": "high",
+                "explanation": "AI未能生成有效的SQL语句，请重新尝试或优化查询描述",
+                "require_confirmation": True,
+                "warnings": ["AI响应缺少SQL字段"]
+            }
+
+        # 确保必需字段存在并转换数据类型
+        required_fields = ["sql", "sql_type", "affected_tables", "estimated_rows", "risk_level", "explanation", "require_confirmation"]
+        for field in required_fields:
+            if field not in best_result:
+                best_result[field] = None
+
+        # 类型转换：确保estimated_rows是整数类型
+        if isinstance(best_result.get("estimated_rows"), str):
+            try:
+                best_result["estimated_rows"] = int(best_result["estimated_rows"])
+            except (ValueError, TypeError):
+                best_result["estimated_rows"] = -1
+
+        # 类型转换：确保require_confirmation是布尔类型
+        if isinstance(best_result.get("require_confirmation"), str):
+            best_result["require_confirmation"] = best_result["require_confirmation"].lower() in ['true', '1', 'yes']
+
+        return best_result
 
     except Exception as e:
         logger.error(f"Failed to parse AI response: {e}")
+        logger.error(f"原始响应内容: {ai_response[:500]}")
         return {
             "sql": "",
             "sql_type": "UNKNOWN",
@@ -537,10 +640,38 @@ def _validate_sql(sql: str) -> Dict[str, Any]:
     if sql_type == "SELECT" and "LIMIT" not in sql_upper:
         result["warnings"].append("建议添加LIMIT限制以避免返回过多数据")
     
-    # 简单的SQL注入检查
-    if ";" in sql or "--" in sql or "/*" in sql:
+    # SQL注入检查：检测真正的注入模式
+    import re
+    
+    # 检查分号后紧跟关键字的模式（真正的SQL注入）
+    if re.search(r';\s*(DROP|ALTER|DELETE|UPDATE|INSERT|CREATE|TRUNCATE)', sql_upper, re.IGNORECASE):
         result["is_valid"] = False
-        result["errors"].append("SQL语句包含可疑字符")
+        result["errors"].append("检测到SQL注入攻击：分号后紧跟危险关键字")
+        return result
+    
+    # 检查注释后跟关键字的模式
+    if re.search(r'--.*?(DROP|ALTER|DELETE|UPDATE|INSERT)', sql_upper, re.IGNORECASE):
+        result["is_valid"] = False
+        result["errors"].append("检测到SQL注入攻击：注释后跟危险关键字")
+        return result
+    
+    # 检查UNION注入
+    if re.search(r'UNION\s+SELECT', sql_upper, re.IGNORECASE):
+        result["is_valid"] = False
+        result["errors"].append("检测到SQL注入攻击：UNION注入")
+        return result
+    
+    # 检查OR注入模式
+    if re.search(r'\bOR\s+\d+\s*=\s*\d+', sql_upper, re.IGNORECASE):
+        result["is_valid"] = False
+        result["errors"].append("检测到SQL注入攻击：OR注入")
+        return result
+    
+    # 检查AND注入模式
+    if re.search(r'\bAND\s+\d+\s*=\s*\d+', sql_upper, re.IGNORECASE):
+        result["is_valid"] = False
+        result["errors"].append("检测到SQL注入攻击：AND注入")
+        return result
     
     return result
 
@@ -586,8 +717,13 @@ def _evaluate_risk(response_data: Dict[str, Any]) -> str:
 def _generate_suggestions(sql: str, sql_type: str) -> List[str]:
     """生成SQL优化建议"""
     suggestions = []
+
+    # 如果sql为None或空字符串，直接返回空建议
+    if not sql or not isinstance(sql, str):
+        return suggestions
+
     sql_upper = sql.upper()
-    
+
     if sql_type == "SELECT":
         # SELECT优化建议
         if "SELECT *" in sql_upper:
@@ -646,13 +782,15 @@ async def main():
     # 初始化服务器
     mcp_server = initialize_server()
     
-    # 测试Ollama连接
+    # 测试AI推理引擎连接
     try:
-        await ollama_client.test_connection()
-        logger.info("✓ Ollama connection successful")
+        await ai_client.test_connection()
+        engine_config = get_config_loader().get_inference_config()
+        logger.info(f"✓ AI inference engine ({engine_config.get('type')}) connection successful")
     except Exception as e:
-        logger.error(f"✗ Failed to connect to Ollama: {e}")
-        logger.info("Please ensure Ollama is running: ollama serve")
+        engine_config = get_config_loader().get_inference_config()
+        logger.error(f"✗ Failed to connect to {engine_config.get('type')}: {e}")
+        logger.info(f"Please ensure {engine_config.get('type')} is running")
         return
     
     # 启动服务器

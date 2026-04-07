@@ -112,7 +112,7 @@ def install_dependencies():
     return True
 
 
-def pull_model(model: str = "qwen3:8b"):
+def pull_model(model: str = "gemma-4-e4b-it"):
     """拉取Ollama模型"""
     print(f"\n{'='*60}")
     print(f"拉取Ollama模型: {model}")
@@ -259,10 +259,10 @@ def main():
     
     if ollama_installed:
         # 拉取模型
-        print("\n是否需要下载推荐模型 qwen3:8b ? (y/n): ", end="")
+        print("\n是否需要下载推荐模型 gemma-4-e4b-it ? (y/n): ", end="")
         response = input().strip().lower()
         if response == 'y':
-            pull_model("qwen3:8b")
+            pull_model("gemma-4-e4b-it")
     
     # 创建示例配置
     create_example_configs()
