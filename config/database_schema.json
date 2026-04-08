@@ -215,7 +215,7 @@
           "description": "所属货架层"
         },
         {
-          "name": "Slot",
+          "name": "slot",
           "type": "int",
           "description": "所属货架槽"
         },

@@ -426,26 +426,41 @@ async def _handle_get_status() -> list:
 def _build_sql_prompt(query: str, user_context: Dict[str, Any]) -> str:
     """构建SQL生成提示词"""
     config_loader = get_config_loader()
+    prompts_config = config_loader.get_prompts_config()
+    instructions = prompts_config.get('instructions', {})
     
     prompt_parts = []
     
-    # 简化的系统提示词
-    prompt_parts.append("你是SQL生成专家，只生成SELECT/UPDATE/INSERT/DELETE，返回JSON格式。")
+    # 系统提示词
+    prompt_parts.append(prompts_config.get('system_prompt', ''))
     
-    # 只包含关键规则
-    prompt_parts.append("\n规则:")
-    prompt_parts.append("- DELETE/UPDATE必须有WHERE")
-    prompt_parts.append("- sys_user表排除password字段")
-    prompt_parts.append("- 大表查询加LIMIT")
-    prompt_parts.append("- 只输出JSON: {sql,sql_type,affected_tables,estimated_rows,risk_level,explanation,require_confirmation,warnings}")
+    # 核心规则
+    core_rules = instructions.get('core_rules', [])
+    if core_rules:
+        prompt_parts.append("\n核心规则:")
+        for rule in core_rules:
+            prompt_parts.append(f"- {rule}")
     
-    # 只输出表名和字段
+    # 查询规则
+    select_rules = instructions.get('select_rules', [])
+    if select_rules:
+        prompt_parts.append("\n查询规则:")
+        for rule in select_rules:
+            prompt_parts.append(f"- {rule}")
+    
+    # 输出格式
+    prompt_parts.append("\n输出JSON:")
+    template = prompts_config.get('output_format', {}).get('template', {})
+    keys = list(template.keys())
+    prompt_parts.append(f"{{{', '.join(keys)}}}")
+    
+    # 表结构
     prompt_parts.append("\n表结构:")
     schema = schema_manager.config_loader.get_database_schema()
     for table in schema.get('tables', []):
         cols = [c['name'] for c in table.get('columns', [])]
         prompt_parts.append(f"{table['name']}: {','.join(cols)}")
-
+    
     # 用户查询
     prompt_parts.append(f"\n查询: {query}")
     
