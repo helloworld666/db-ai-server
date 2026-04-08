@@ -46,26 +46,27 @@ class ConfigLoader:
     def _load_json(self, filename: str) -> Dict[str, Any]:
         """
         加载JSON配置文件
-        
+
         Args:
             filename: 文件名
-        
+
         Returns:
             配置字典
         """
         file_path = self.config_dir / filename
-        
+
         if not file_path.exists():
             logger.warning(f"Config file not found: {file_path}, using empty config")
             return {}
-        
+
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            # 使用 utf-8-sig 编码处理可能的 BOM (Byte Order Mark)
+            with open(file_path, 'r', encoding='utf-8-sig') as f:
                 config = json.load(f)
-            
+
             logger.debug(f"Loaded config from {filename}")
             return config
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse {filename}: {e}")
             raise ValueError(f"Invalid JSON in {filename}: {e}")

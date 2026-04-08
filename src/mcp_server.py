@@ -429,52 +429,25 @@ def _build_sql_prompt(query: str, user_context: Dict[str, Any]) -> str:
     
     prompt_parts = []
     
-    # 系统提示词
-    prompt_parts.append(config_loader.get('prompts.system_prompt', ''))
+    # 简化的系统提示词
+    prompt_parts.append("你是SQL生成专家，只生成SELECT/UPDATE/INSERT/DELETE，返回JSON格式。")
     
-    # 指令
-    prompt_parts.append("\n## 重要规则")
-    instructions = config_loader.get('prompts.instructions.general', [])
-    for instruction in instructions:
-        prompt_parts.append(f"- {instruction}")
-
-    # 模式匹配规则
-    pattern_rules = config_loader.get('prompts.instructions.pattern_matching', [])
-    if pattern_rules:
-        prompt_parts.append("\n## 模式匹配规则")
-        for rule in pattern_rules:
-            prompt_parts.append(f"- {rule}")
+    # 只包含关键规则
+    prompt_parts.append("\n规则:")
+    prompt_parts.append("- DELETE/UPDATE必须有WHERE")
+    prompt_parts.append("- sys_user表排除password字段")
+    prompt_parts.append("- 大表查询加LIMIT")
+    prompt_parts.append("- 只输出JSON: {sql,sql_type,affected_tables,estimated_rows,risk_level,explanation,require_confirmation,warnings}")
     
-    # 数据库Schema
-    prompt_parts.append("\n" + schema_manager.format_schema_for_prompt())
-    
-    # 用户上下文
-    if user_context:
-        prompt_parts.append("\n## 用户上下文")
-        prompt_parts.append(f"用户名: {user_context.get('username', 'N/A')}")
-        prompt_parts.append(f"角色: {user_context.get('role', 'N/A')}")
-        if 'permissions' in user_context:
-            prompt_parts.append(f"权限: {', '.join(user_context['permissions'])}")
-
-    # 输出格式
-    prompt_parts.append("\n## 输出格式要求")
-    prompt_parts.append("重要：请直接返回一个JSON对象，包含以下字段，不要包含任何说明文字、不要嵌套在template字段中：")
-    prompt_parts.append(json.dumps({
-      "sql": "生成的SQL语句（必需，必须是一个完整的、可直接执行的SQL语句）",
-      "sql_type": "SQL类型，值为'SELECT'/'UPDATE'/'INSERT'/'DELETE'（必需）",
-      "affected_tables": "受影响的表名列表（必需）",
-      "estimated_rows": "预估影响行数（必需，如果无法预估填-1）",
-      "risk_level": "风险等级，值为'low'/'medium'/'high'/'critical'（必需）",
-      "explanation": "操作的中文说明（必需）",
-      "require_confirmation": "是否需要用户确认（布尔值，必需）",
-      "warnings": "警告信息列表（可选，数组）",
-      "query_type": "查询类型，SELECT操作可选值：'simple'/'join'/'aggregate'/'subquery'（仅SELECT需要）",
-      "suggestions": "优化建议列表（可选，数组）"
-    }, ensure_ascii=False, indent=2))
-    prompt_parts.append("\n注意：sql字段是必需的，必须包含完整的SQL语句，不能为空或null。")
+    # 只输出表名和字段
+    prompt_parts.append("\n表结构:")
+    schema = schema_manager.config_loader.get_database_schema()
+    for table in schema.get('tables', []):
+        cols = [c['name'] for c in table.get('columns', [])]
+        prompt_parts.append(f"{table['name']}: {','.join(cols)}")
 
     # 用户查询
-    prompt_parts.append(f"\n## 用户查询\n{query}")
+    prompt_parts.append(f"\n查询: {query}")
     
     return "\n".join(prompt_parts)
 
@@ -784,9 +757,25 @@ async def main():
     
     # 测试AI推理引擎连接
     try:
+        # 先初始化 session（建立 TCP 连接池）
+        await ai_client._get_session()
+        logger.info("AI client session initialized")
+        
         await ai_client.test_connection()
         engine_config = get_config_loader().get_inference_config()
         logger.info(f"✓ AI inference engine ({engine_config.get('type')}) connection successful")
+        
+        # 预热模型：发送一个轻量级请求让LM Studio加载模型
+        logger.info("Warming up AI model...")
+        try:
+            warmup_result = await ai_client.generate(
+                prompt="Say 'ready' in one word.",
+                temperature=0.1,
+                num_predict=10
+            )
+            logger.info(f"✓ AI model warmup successful: {warmup_result[:50]}")
+        except Exception as warmup_err:
+            logger.warning(f"Model warmup failed (non-critical): {warmup_err}")
     except Exception as e:
         engine_config = get_config_loader().get_inference_config()
         logger.error(f"✗ Failed to connect to {engine_config.get('type')}: {e}")

@@ -40,6 +40,12 @@ async def lifespan(app: FastAPI):
     if mcp_client.process:
         mcp_client.process.terminate()
         await mcp_client.process.wait()
+    if mcp_client.stderr_task:
+        mcp_client.stderr_task.cancel()
+        try:
+            await mcp_client.stderr_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="DB-AI-Server HTTP API", lifespan=lifespan)
@@ -63,9 +69,6 @@ class GenerateSqlRequest(BaseModel):
     """生成SQL请求模型"""
     query: str
 
-# MCP服务器进程
-mcp_process = None
-
 
 class MCPClient:
     """简单的MCP客户端，通过stdio与MCP服务器通信"""
@@ -74,6 +77,7 @@ class MCPClient:
         self.process = None
         self.initialized = False
         self.request_id = 0
+        self.stderr_task = None
 
     async def start(self):
         """启动MCP服务器进程并初始化"""
@@ -85,10 +89,19 @@ class MCPClient:
             stderr=subprocess.PIPE,
             cwd=Path(__file__).parent
         )
-        logger.info("MCP服务器进程已启动")
+        logger.info("MCP服务器进程已启动，PID: {}".format(self.process.pid))
 
-        # 等待进程启动
-        await asyncio.sleep(0.5)
+        # 启动stderr读取任务
+        self.stderr_task = asyncio.create_task(self._read_stderr())
+
+        # 等待进程启动 (移除不必要的等待)
+        # await asyncio.sleep(1)
+
+        # 检查进程是否还在运行
+        if self.process.returncode is not None:
+            error_msg = "MCP服务器进程已退出"
+            logger.error(f"{error_msg}，返回码: {self.process.returncode}")
+            raise HTTPException(status_code=500, detail=error_msg)
 
         # 发送初始化请求
         await self._initialize()
@@ -169,13 +182,30 @@ class MCPClient:
             logger.error(f"解析MCP响应失败: {e}, 响应内容: {response_str[:200]}")
             raise HTTPException(status_code=500, detail=f"解析响应失败: {e}")
 
+    async def _read_stderr(self):
+        """持续读取MCP服务器的stderr输出"""
+        try:
+            while self.process and self.process.returncode is None:
+                line = await self.process.stderr.readline()
+                if not line:
+                    break
+                line_str = line.decode('utf-8', errors='ignore').strip()
+                if line_str:
+                    logger.info(f"[MCP服务器] {line_str}")
+        except Exception as e:
+            logger.error(f"读取stderr失败: {e}")
+
     async def call_tool(self, tool_name: str, arguments: dict) -> dict:
         """调用MCP工具"""
         if not self.process or self.process.returncode is not None:
             await self.start()
 
         if not self.initialized:
-            await asyncio.sleep(0.5)  # 等待初始化完成
+            # 等待初始化完成，而不是简单的sleep
+            retry_count = 0
+            while not self.initialized and retry_count < 10:
+                await asyncio.sleep(0.1)  # 短等待，检查是否初始化完成
+                retry_count += 1
 
         # 构造MCP请求
         self.request_id += 1
@@ -189,8 +219,14 @@ class MCPClient:
             }
         }
 
+        logger.info(f"[TIMING] 发送MCP请求: tool={tool_name}, id={self.request_id}")
+        send_time = asyncio.get_event_loop().time()
+        
         await self._send_request(request)
         response = await self._read_response()
+        
+        elapsed = asyncio.get_event_loop().time() - send_time
+        logger.info(f"[TIMING] MCP响应接收完成，耗时: {elapsed:.3f}秒")
 
         if "error" in response:
             logger.error(f"MCP工具调用失败: {response['error']}")
@@ -230,6 +266,7 @@ class MCPClient:
         return result
 
 
+# MCP客户端实例（在类定义之后创建）
 mcp_client = MCPClient()
 
 
@@ -267,12 +304,19 @@ async def generate_sql(request: GenerateSqlRequest):
         "query": "查询所有激活的用户"
     }
     """
+    import time
+    request_start = time.time()
+    logger.info(f"[TIMING] 收到generate_sql请求: '{request.query}', 时间戳: {request_start}")
+    
     try:
         query = request.query
         if not query:
             raise HTTPException(status_code=400, detail="缺少query参数")
 
         result = await mcp_client.call_tool("generate_sql", {"query": query})
+        
+        total_time = time.time() - request_start
+        logger.info(f"[TIMING] generate_sql完成，总耗时: {total_time:.3f}秒")
         return result
     except HTTPException:
         raise
