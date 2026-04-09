@@ -41,3 +41,4 @@ pyvenv/
 
 config/prompts_simple.json
 config/prompts_standard.json
+config/server_config.json
