@@ -1,0 +1,40 @@
+# 日志目录
+logs/
+src/logs/
+
+# 开发配置目录
+.idea/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 编辑器相关
+.vscode/
+*.swp
+*.swo
+*~
+
+# 操作系统相关
+.DS_Store
+Thumbs.db
+
+# 环境变量文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 包管理
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+venv/
+env/
+pyvenv/
+
+.cadence/
+.venv/
