@@ -660,7 +660,16 @@ def _evaluate_risk(response_data: Dict[str, Any]) -> str:
     """评估风险等级"""
     sql = response_data.get("sql", "")
     sql_type = response_data.get("sql_type", "")
-    estimated_rows = response_data.get("estimated_rows", -1)
+    estimated_rows = response_data.get("estimated_rows")
+
+    # 确保 estimated_rows 是整数类型，None 则设为 -1
+    if estimated_rows is None:
+        estimated_rows = -1
+    elif not isinstance(estimated_rows, int):
+        try:
+            estimated_rows = int(estimated_rows)
+        except (ValueError, TypeError):
+            estimated_rows = -1
 
     # DELETE操作风险最高
     if sql_type == "DELETE":
