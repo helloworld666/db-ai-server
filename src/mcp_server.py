@@ -186,11 +186,27 @@ async def _handle_generate_sql(arguments: Dict[str, Any]) -> list:
 
     # 调用AI生成SQL
     ai_response = await ai_client.generate(prompt)
-    logger.info(f"AI原始响应: {ai_response[:500]}")  # 记录前500字符用于调试
+    logger.info(f"AI原始响应: {ai_response[:500]}")
 
     # 解析响应
     response_data = _parse_ai_response(ai_response)
-    logger.info(f"解析后的response_data: {response_data}")  # 记录解析后的数据
+    logger.info(f"解析后的response_data: {response_data}")
+
+    # 检查SQL中是否包含占位符
+    import re
+    sql = response_data.get("sql", "")
+    if sql and re.search(r'[?%:$]', sql):
+        logger.error(f"AI生成的SQL包含占位符，这是不允许的")
+
+        # 生成友好的错误提示
+        error_msg = "数据库操做描述不够具体。请提供更明确的描述，例如：\n"
+        error_msg += "- '更新货架编号为***的货架,将其编号更改为***'\n"
+        error_msg += "- '更新用户名为***的用户为可用状态'"
+        response_data["sql"] = ""
+        response_data["error"] = error_msg
+        response_data["explanation"] = error_msg
+        response_data["risk_level"] = "high"
+        return [TextContent(type="text", text=json.dumps(response_data, ensure_ascii=False, indent=2))]
 
     # 验证SQL
     validation_result = _validate_sql(response_data.get("sql", ""))
@@ -205,11 +221,9 @@ async def _handle_generate_sql(arguments: Dict[str, Any]) -> list:
     if suggestions and "suggestions" not in response_data or not response_data.get("suggestions"):
         response_data["suggestions"] = suggestions
     elif suggestions:
-        # 合并AI生成的建议和系统生成的建议
         existing_suggestions = response_data.get("suggestions", [])
         response_data["suggestions"] = list(set(existing_suggestions + suggestions))
 
-    # 返回TextContent列表，让MCP框架包装成CallToolResult
     return [TextContent(type="text", text=json.dumps(response_data, ensure_ascii=False, indent=2))]
 
 
@@ -251,11 +265,8 @@ async def _handle_execute_sql(arguments: Dict[str, Any]) -> list:
 
     # 执行SQL
     try:
-        # 转换参数为tuple
-        param_tuple = tuple(params) if params is not None else None
-
-        # 执行SQL
-        result = db_connector.execute_sql(sql, param_tuple)
+        # 执行SQL（SQL应该已经包含实际值，不需要params）
+        result = db_connector.execute_sql(sql, None)
 
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
@@ -334,6 +345,10 @@ def _build_sql_prompt(query: str, user_context: Dict[str, Any]) -> str:
     for table in schema.get('tables', []):
         cols = [c['name'] for c in table.get('columns', [])]
         prompt_parts.append(f"{table['name']}: {','.join(cols)}")
+
+    # 用户上下文
+    if user_context:
+        prompt_parts.append(f"\n用户上下文: {json.dumps(user_context, ensure_ascii=False)}")
 
     # 用户查询
     prompt_parts.append(f"\n查询: {query}")
