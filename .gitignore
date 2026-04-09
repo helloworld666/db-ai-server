@@ -39,5 +39,5 @@ pyvenv/
 .cadence/
 .venv/
 
-./config/prompts_simple.json
-./config/prompts_standard.json
+config/prompts_simple.json
+config/prompts_standard.json
