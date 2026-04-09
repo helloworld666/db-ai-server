@@ -584,9 +584,10 @@ def _validate_sql(sql: str) -> Dict[str, Any]:
 
     sql_upper = sql.upper().strip()
 
-    # 检查危险关键词
+    # 检查危险关键词（使用单词边界匹配，避免误判字段名）
+    import re
     for keyword in dangerous_keywords:
-        if keyword in sql_upper:
+        if re.search(r'\b' + keyword + r'\b', sql_upper):
             result["is_valid"] = False
             result["errors"].append(f"禁止使用 {keyword} 关键词")
 
