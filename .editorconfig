@@ -1,0 +1,28 @@
+# EditorConfig for db-ai-server
+# https://editorconfig.org
+
+root = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.json]
+indent_style = space
+indent_size = 2
+
+[*.yaml]
+indent_style = space
+indent_size = 2
+
+[*.yml]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
