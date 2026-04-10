@@ -27,6 +27,7 @@ except ImportError:
 from src.config_loader import get_config_loader
 from src.ollama_client import OllamaClient
 from src.lmstudio_client import LMStudioClient
+from src.cloud_ai_client import CloudAIClient
 from src.schema_manager import SchemaManager
 from src.database_connector import DatabaseConnector
 
@@ -50,14 +51,15 @@ logger = logging.getLogger(__name__)
 server: Optional[Server] = None
 ollama_client: Optional[OllamaClient] = None
 lmstudio_client: Optional[LMStudioClient] = None
-ai_client = None  # 通用的 AI 客户端（OllamaClient 或 LMStudioClient）
+cloud_client: Optional[CloudAIClient] = None
+ai_client = None  # 通用的 AI 客户端（OllamaClient 或 LMStudioClient 或 CloudAIClient）
 schema_manager: Optional[SchemaManager] = None
 db_connector: Optional[DatabaseConnector] = None
 
 
 def initialize_server():
     """初始化服务器组件"""
-    global server, ollama_client, lmstudio_client, ai_client, schema_manager, db_connector
+    global server, ollama_client, lmstudio_client, cloud_client, ai_client, schema_manager, db_connector
 
     # 加载配置
     logger.info("Initializing db-ai-server MCP Server...")
@@ -68,17 +70,58 @@ def initialize_server():
     engine_config = config_loader.get_inference_config()
     engine_type = engine_config.get('type', 'lmstudio')
     logger.info(f"Using inference engine: {engine_type}")
-    logger.info(f"Base URL: {engine_config.get('base_url')}")
-    logger.info(f"Model: {engine_config.get('model')}")
 
-    if engine_type == 'lmstudio':
+    # 云端AI平台列表
+    cloud_platforms = ['deepseek', 'qwen', 'zhipu', 'openai', 'claude']
+    
+    if engine_type in cloud_platforms:
+        # 云端AI平台 - 从云端配置或内联配置中获取
+        api_key = engine_config.get('api_key', '')
+        
+        # 如果主配置中没有API Key，尝试从cloud_platforms.json中获取
+        if not api_key:
+            platform_config = config_loader.get_cloud_platform_config(engine_type)
+            api_key = platform_config.get('api_key', '')
+        
+        if not api_key:
+            logger.error(f"{engine_type} requires API key. Please set 'api_key' in config.")
+            raise ValueError(f"Missing API key for {engine_type}")
+        
+        # 合并配置：优先使用主配置，其次使用平台配置文件
+        base_url = engine_config.get('base_url')
+        model = engine_config.get('model')
+        
+        if not base_url or not model:
+            platform_config = config_loader.get_cloud_platform_config(engine_type)
+            base_url = base_url or platform_config.get('base_url')
+            model = model or platform_config.get('model')
+        
+        logger.info(f"Platform: {engine_type}")
+        logger.info(f"Base URL: {base_url}")
+        logger.info(f"Model: {model}")
+        
+        cloud_client = CloudAIClient(
+            platform=engine_type,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=engine_config.get('timeout', 120),
+            max_retries=engine_config.get('max_retries', 3)
+        )
+        ai_client = cloud_client
+        
+    elif engine_type == 'lmstudio':
         # 初始化 LM Studio 客户端
+        logger.info(f"Base URL: {engine_config.get('base_url')}")
+        logger.info(f"Model: {engine_config.get('model')}")
         lmstudio_client = LMStudioClient(base_url=engine_config.get('base_url'), model=engine_config.get('model'),
             timeout=engine_config.get('timeout', 120), max_retries=engine_config.get('max_retries', 3))
         ai_client = lmstudio_client
 
     else:
         # 默认使用 Ollama 客户端
+        logger.info(f"Base URL: {engine_config.get('base_url')}")
+        logger.info(f"Model: {engine_config.get('model')}")
         ollama_client = OllamaClient(base_url=engine_config.get('base_url'), model=engine_config.get('model'),
             timeout=engine_config.get('timeout', 120), max_retries=engine_config.get('max_retries', 3))
         ai_client = ollama_client
@@ -192,11 +235,14 @@ async def _handle_generate_sql(arguments: Dict[str, Any]) -> list:
     response_data = _parse_ai_response(ai_response)
     logger.info(f"解析后的response_data: {response_data}")
 
-    # 检查SQL中是否包含占位符
+    # 检查SQL中是否包含占位符（排除 LIKE 的 % 通配符）
     import re
     sql = response_data.get("sql", "")
-    if sql and re.search(r'[?%:$]', sql):
-        logger.error(f"AI生成的SQL包含占位符，这是不允许的")
+    if sql:
+        # 只检测真正的参数占位符
+        placeholder_pattern = r'(\?|%\d*[sdfe]|%\([^)]+\)|\$\d|\bparam\d*\b)'
+        if re.search(placeholder_pattern, sql, re.IGNORECASE):
+            logger.error(f"AI生成的SQL包含占位符，这是不允许的")
 
         # 生成友好的错误提示
         error_msg = "数据库操做描述不够具体。请提供更明确的描述，例如：\n"

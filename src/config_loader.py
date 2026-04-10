@@ -41,6 +41,9 @@ class ConfigLoader:
         # 加载安全规则
         self._cache['security'] = self._load_json('security_rules.json')
         
+        # 加载云端AI平台配置
+        self._cache['cloud_platforms'] = self._load_json('cloud_platforms.json')
+        
         logger.info("All configurations loaded successfully")
     
     def _load_json(self, filename: str) -> Dict[str, Any]:
@@ -182,6 +185,28 @@ class ConfigLoader:
     def get_security_config(self) -> Dict[str, Any]:
         """获取安全配置"""
         return self.get('server.security', {})
+    
+    def get_cloud_platform_config(self, platform: str) -> Dict[str, Any]:
+        """
+        获取指定云端AI平台的配置
+        
+        Args:
+            platform: 平台类型 (deepseek, qwen, zhipu, openai, claude)
+        
+        Returns:
+            云端平台配置字典
+        """
+        cloud_platforms = self._cache.get('cloud_platforms', {})
+        return cloud_platforms.get(platform, {})
+    
+    def get_all_cloud_platforms(self) -> Dict[str, Any]:
+        """
+        获取所有云端AI平台配置
+        
+        Returns:
+            所有云端平台配置字典
+        """
+        return self._cache.get('cloud_platforms', {})
 
 
 # 全局配置加载器实例

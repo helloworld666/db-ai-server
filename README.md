@@ -1,6 +1,6 @@
 # DB-AI-Server
 
-**数据库AI服务器** - 一个独立、可配置的MCP服务器，用于通过AI（Ollama）生成和管理数据库SQL语句。
+**数据库AI服务器** - 一个独立、可配置的MCP服务器，用于通过AI生成和管理数据库SQL语句。
 
 ## 🌟 特性
 
@@ -9,7 +9,7 @@
 - ✅ **自然语言接口**: 通过自然语言描述直接生成SQL，无需编写数据访问层
 - ✅ **完全独立**: 不依赖任何特定项目，可被任何项目使用
 - ✅ **配置驱动**: 数据库Schema、提示词、规则全部通过JSON/MD配置文件管理
-- ✅ **本地LLM**: 基于Ollama本地推理，保护数据隐私
+- ✅ **多引擎支持**: 支持本地LLM（Ollama/LM Studio）和云端AI平台（Deep Seek/通义千问/智谱AI等）
 - ✅ **安全可控**: 多层SQL验证、风险评估、权限控制
 - ✅ **MCP标准**: 完全遵循MCP协议标准
 - ✅ **灵活扩展**: 支持自定义模型、自定义验证规则
@@ -32,15 +32,14 @@ db-ai-server/
 │   ├── __init__.py
 │   ├── mcp_server.py               # MCP服务器主程序
 │   ├── ollama_client.py            # Ollama客户端
+│   ├── lmstudio_client.py          # LM Studio客户端
+│   ├── cloud_ai_client.py          # 云端AI客户端（支持Deep Seek/通义千问/智谱AI等）
 │   ├── config_loader.py            # 配置加载器
 │   ├── schema_manager.py           # Schema管理器
-│   ├── prompt_builder.py           # 提示词构建器
-│   ├── response_validator.py       # 响应验证器
-│   ├── database_connector.py      # 数据库连接器
-│   └── utils.py                    # 工具函数
+│   └── database_connector.py       # 数据库连接器
+├── docs/                            # 文档目录
+│   └── Cloud_AI_Platforms.md      # 云端AI平台配置指南
 └── tests/                          # 测试
-    ├── test_mcp_server.py
-    └── test_client.py
 ```
 
 ## 🚀 快速开始
@@ -55,15 +54,47 @@ pip install -r requirements.txt
 
 ### 2. 配置推理引擎
 
-db-ai-server 支持多种 AI 推理引擎，包括 **LM Studio**（推荐）和 **Ollama**。
+db-ai-server 支持多种 AI 推理引擎，包括 **云端AI平台**（推荐）和 **本地LLM**。
 
-#### 方式1：使用 LM Studio（推荐）
+#### 方式1：使用云端AI平台（推荐）
 
-LM Studio 提供图形化界面，易于配置和调试。
+云端平台配置简单，无需本地安装模型，支持 Deep Seek、通义千问、智谱AI、OpenAI、Claude 等。
+
+**支持的平台：**
+
+| 平台 | 推荐模型 | API地址 |
+|------|----------|---------|
+| Deep Seek | deepseek-coder | https://platform.deepseek.com |
+| 通义千问 | qwen-coder-plus | https://bailian.console.aliyun.com |
+| 智谱AI | glm-4-flash | https://open.bigmodel.cn |
+| OpenAI | gpt-4o-mini | https://platform.openai.com |
+| Claude | claude-3-5-haiku | https://console.anthropic.com |
+
+**配置文件（以 Deep Seek 为例）：**
+```json
+{
+  "inference_engine": {
+    "type": "deepseek",
+    "api_key": "你的API Key",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-coder",
+    "timeout": 120,
+    "max_retries": 3,
+    "temperature": 0.1,
+    "max_tokens": 2048
+  }
+}
+```
+
+详细配置说明请参考 [云端AI平台配置指南](docs/Cloud_AI_Platforms.md)。
+
+#### 方式2：使用 LM Studio（本地）
+
+LM Studio 提供图形化界面，适合本地开发测试。
 
 **安装 LM Studio：**
 1. 从 [lmstudio.ai](https://lmstudio.ai/) 下载并安装
-2. 搜索并下载 `gemma-4-e4b-it` 模型
+2. 下载模型（如 qwen2.5-coder-3b-instruct）
 3. 点击 "Chat" 按钮启动推理引擎
 4. 确保 "Server" 设置正确：
    - 端口: `62666`
@@ -76,7 +107,7 @@ LM Studio 提供图形化界面，易于配置和调试。
   "inference_engine": {
     "type": "lmstudio",
     "base_url": "http://127.0.0.1:62666/v1",
-    "model": "gemma-4-e4b-it",
+    "model": "qwen2.5-coder-3b-instruct",
     "timeout": 120,
     "max_retries": 3,
     "temperature": 0.1,
@@ -86,7 +117,7 @@ LM Studio 提供图形化界面，易于配置和调试。
 }
 ```
 
-#### 方式2：使用 Ollama
+#### 方式3：使用 Ollama（本地）
 
 Ollama 是命令行工具，适合生产环境。
 
@@ -98,10 +129,7 @@ Ollama 是命令行工具，适合生产环境。
 ollama serve
 
 # 拉取推荐模型
-ollama pull gemma-4-e4b-it
-# 或使用其他模型
-ollama pull llama3.2:3b
-ollama pull qwen2.5:7b
+ollama pull qwen2.5-coder-3b-instruct
 ```
 
 **配置文件：**
@@ -110,7 +138,7 @@ ollama pull qwen2.5:7b
   "inference_engine": {
     "type": "ollama",
     "base_url": "http://127.0.0.1:11434/api",
-    "model": "gemma-4-e4b-it",
+    "model": "qwen2.5-coder-3b-instruct",
     "timeout": 120,
     "max_retries": 3,
     "temperature": 0.1,
@@ -123,40 +151,43 @@ ollama pull qwen2.5:7b
 #### 切换推理引擎
 
 只需修改 `config/server_config.json` 中的 `inference_engine.type` 字段：
-- `"lmstudio"` - 使用 LM Studio
-- `"ollama"` - 使用 Ollama
+
+| type值 | 引擎类型 | 说明 |
+|--------|----------|------|
+| `deepseek` | Deep Seek 云端 | 代码能力强，价格实惠 |
+| `qwen` | 通义千问 云端 | 阿里云，中文优秀 |
+| `zhipu` | 智谱AI 云端 | 智谱出品 |
+| `openai` | OpenAI 云端 | ChatGPT |
+| `claude` | Claude 云端 | Anthropic |
+| `lmstudio` | LM Studio 本地 | GUI界面 |
+| `ollama` | Ollama 本地 | 命令行工具 |
 
 修改后重启 db-ai-server 即可。
 
 #### 推理引擎对比
 
-| 特性 | LM Studio | Ollama |
-|------|-----------|---------|
-| 配置便捷性 | ⭐⭐⭐⭐⭐ GUI 界面 | ⭐⭐⭐ 命令行 |
-| 模型管理 | ⭐⭐⭐⭐⭐ 内置市场 | ⭐⭐⭐ CLI 命令 |
-| API 兼容性 | ⭐⭐⭐⭐⭐ OpenAI | ⭐⭐⭐ 自定义 |
-| 资源占用 | 中等 | 较低 |
-| 推荐场景 | 开发、测试 | 生产环境 |
+| 特性 | 云端平台 | LM Studio | Ollama |
+|------|---------|-----------|---------|
+| 配置便捷性 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
+| 成本 | 按量付费 | 免费 | 免费 |
+| 性能 | 强大 | 依赖硬件 | 依赖硬件 |
+| 隐私 | 数据上传 | 完全本地 | 完全本地 |
+| 推荐场景 | 生产环境 | 开发测试 | 生产环境 |
 
 #### 配置参数说明
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `type` | 推理引擎类型：`lmstudio` 或 `ollama` | `lmstudio` |
-| `base_url` | 推理引擎 API 地址 | `http://127.0.0.1:62666/v1` / `http://127.0.0.1:11434/api` |
-| `model` | 模型名称 | `gemma-4-e4b-it` |
+| `type` | 推理引擎类型 | `lmstudio` |
+| `api_key` | API密钥（云端必填） | - |
+| `base_url` | API地址 | 引擎默认值 |
+| `model` | 模型名称 | - |
 | `timeout` | 请求超时时间（秒） | 120 |
 | `max_retries` | 最大重试次数 | 3 |
 | `temperature` | 温度参数（0-1，越低越确定） | 0.1 |
-| `num_ctx` | 上下文窗口大小 | 4096 |
-| `num_predict` | 最大生成长度 | 2048 |
-
-#### 测试推理引擎连接
-
-```bash
-cd e:/develop/db-ai-server
-python test_engine.py
-```
+| `num_ctx` | 上下文窗口大小（本地） | 4096 |
+| `num_predict` | 最大生成长度（本地） | 2048 |
+| `max_tokens` | 最大生成长度（云端） | 2048 |
 
 ### 3. 配置数据库连接
 
