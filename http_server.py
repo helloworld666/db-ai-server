@@ -16,6 +16,7 @@ try:
     from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
+    from typing import Optional
     import uvicorn
 except ImportError:
     print("错误: 未安装fastapi和uvicorn，请运行: pip install fastapi uvicorn pydantic")
@@ -68,6 +69,12 @@ class ExecuteSqlRequest(BaseModel):
 class GenerateSqlRequest(BaseModel):
     """生成SQL请求模型"""
     query: str
+
+
+class ExecuteIntelligentlyRequest(BaseModel):
+    """智能执行请求模型"""
+    query: str
+    user_context: Optional[dict] = None
 
 
 class MCPClient:
@@ -322,6 +329,44 @@ async def generate_sql(request: GenerateSqlRequest):
         raise
     except Exception as e:
         logger.error(f"生成SQL失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/mcp/execute_intelligently")
+async def execute_intelligently(request: ExecuteIntelligentlyRequest):
+    """
+    智能执行：AI自主分析用户意图并规划多步操作
+    
+    请求格式:
+    {
+        "query": "添加用户test，真实姓名测试用户，密码123456，角色ID为1",
+        "user_context": {"userId": 123}  # 可选，用户上下文信息
+    }
+    """
+    try:
+        import time
+        request_start = time.time()
+        logger.info(f"[TIMING] execute_intelligently开始，query: {request.query[:50]}...")
+        
+        query = request.query
+        user_context = request.user_context or {}
+        
+        if not query:
+            raise HTTPException(status_code=400, detail="缺少query参数")
+        
+        arguments = {"query": query}
+        if user_context:
+            arguments["user_context"] = user_context
+            
+        result = await mcp_client.call_tool("execute_intelligently", arguments)
+        
+        total_time = time.time() - request_start
+        logger.info(f"[TIMING] execute_intelligently完成，总耗时: {total_time:.3f}秒")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"智能执行失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

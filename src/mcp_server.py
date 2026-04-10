@@ -30,6 +30,7 @@ from src.lmstudio_client import LMStudioClient
 from src.cloud_ai_client import CloudAIClient
 from src.schema_manager import SchemaManager
 from src.database_connector import DatabaseConnector
+from src.agent_wrapper import AgentWrapper
 
 
 # 配置日志
@@ -55,11 +56,12 @@ cloud_client: Optional[CloudAIClient] = None
 ai_client = None  # 通用的 AI 客户端（OllamaClient 或 LMStudioClient 或 CloudAIClient）
 schema_manager: Optional[SchemaManager] = None
 db_connector: Optional[DatabaseConnector] = None
+agent_wrapper: Optional[AgentWrapper] = None
 
 
 def initialize_server():
     """初始化服务器组件"""
-    global server, ollama_client, lmstudio_client, cloud_client, ai_client, schema_manager, db_connector
+    global server, ollama_client, lmstudio_client, cloud_client, ai_client, schema_manager, db_connector, agent_wrapper
 
     # 加载配置
     logger.info("Initializing db-ai-server MCP Server...")
@@ -142,6 +144,18 @@ def initialize_server():
         logger.info("未配置数据库连接字符串，SQL执行功能将不可用")
         db_connector = None
 
+    # 初始化智能代理
+    try:
+        agent_wrapper = AgentWrapper(config_loader)
+        agent_initialized = agent_wrapper.initialize()
+        if agent_initialized:
+            logger.info("智能代理初始化成功")
+        else:
+            logger.warning("智能代理初始化失败，智能执行功能可能受限")
+    except Exception as e:
+        logger.warning(f"智能代理初始化异常: {e}")
+        agent_wrapper = None
+
     # 创建MCP Server
     server = Server("db-ai-server")
 
@@ -171,11 +185,18 @@ def _register_tools():
                 "properties": {"sql": {"type": "string", "description": "要验证的SQL语句"}}, "required": ["sql"]}),
             Tool(name="estimate_affected_rows", description="预估SQL语句将影响的行数",
                 inputSchema={"type": "object", "properties": {"sql": {"type": "string", "description": "SQL语句"}},
-                    "required": ["sql"]}), Tool(name="execute_sql",
+                    "required": ["sql"]}),             Tool(name="execute_sql",
                 description="执行SQL语句并返回结果（SELECT返回查询结果，UPDATE/INSERT/DELETE返回影响行数）",
                 inputSchema={"type": "object",
                     "properties": {"sql": {"type": "string", "description": "要执行的SQL语句"},
                         "params": {"type": "array", "description": "SQL参数（防止SQL注入），可选"}}, "required": ["sql"]}),
+            Tool(name="execute_intelligently",
+                description="智能执行：AI自主分析用户意图，自动规划多步操作（数据变更后自动验证）",
+                inputSchema={"type": "object",
+                    "properties": {"query": {"type": "string", "description": "用户自然语言描述"},
+                        "user_context": {"type": "object", "description": "用户上下文信息（可选）",
+                            "properties": {"username": {"type": "string"}, "role": {"type": "string"},
+                                "permissions": {"type": "array", "items": {"type": "string"}}}}}, "required": ["query"]}),
             Tool(name="get_server_status", description="获取服务器状态和配置信息",
                 inputSchema={"type": "object", "properties": {}})]
 
@@ -195,6 +216,8 @@ def _register_tools():
                 return await _handle_estimate_rows(arguments)
             elif name == "execute_sql":
                 return await _handle_execute_sql(arguments)
+            elif name == "execute_intelligently":
+                return await _handle_execute_intelligently(arguments)
             elif name == "get_server_status":
                 return await _handle_get_status()
             else:
@@ -321,6 +344,184 @@ async def _handle_execute_sql(arguments: Dict[str, Any]) -> list:
             text=json.dumps({"success": False, "error": str(e)}, ensure_ascii=False, indent=2))]
 
 
+async def _handle_execute_intelligently(arguments: Dict[str, Any]) -> list:
+    """处理智能执行请求：AI自主分析用户意图并规划多步操作 - 使用智能代理"""
+    query = arguments.get("query", "")
+    user_context = arguments.get("user_context", {})
+
+    if not query:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": "query参数不能为空"
+        }, ensure_ascii=False, indent=2))]
+
+    # TODO: 暂时禁用智能代理，因为有异步事件循环问题
+    # 问题: asyncio.run() cannot be called from a running event loop
+    # 解决方案: 暂时强制使用回退逻辑，确保系统可用
+    logger.warning("智能代理有异步事件循环问题，暂时使用回退逻辑")
+    return await _handle_execute_intelligently_fallback(arguments)
+
+async def _handle_execute_intelligently_fallback(arguments: Dict[str, Any]) -> list:
+    """智能执行的回退逻辑（原始实现）"""
+    query = arguments.get("query", "")
+    user_context = arguments.get("user_context", {})
+
+    # 检查数据库连接
+    if not db_connector:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": "数据库未配置或连接失败。请在config/server_config.json中设置database.connection_string"
+        }, ensure_ascii=False, indent=2))]
+
+    try:
+        # 1. 生成SQL（AI会根据原则判断是否需要多步操作）
+        sql_generation_result = await _handle_generate_sql({
+            "query": query,
+            "user_context": user_context
+        })
+        
+        # 解析生成的SQL结果
+        sql_result_text = sql_generation_result[0].text
+        sql_result = json.loads(sql_result_text)
+        
+        # 检查是否生成成功
+        if "error" in sql_result and sql_result["error"]:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": sql_result["error"],
+                "explanation": sql_result.get("explanation", "")
+            }, ensure_ascii=False, indent=2))]
+        
+        # 获取SQL信息
+        main_sql = sql_result.get("sql", "")
+        follow_up_sql = sql_result.get("follow_up_sql", "")
+        requires_verification = sql_result.get("requires_verification", False)
+        sql_type = sql_result.get("sql_type", "").upper()
+        
+        # 调试日志：查看AI生成的验证SQL
+        logger.info(f"智能执行调试 - AI生成的验证SQL: '{follow_up_sql}'")
+        logger.info(f"智能执行调试 - 是否需要验证: {requires_verification}")
+        
+        if not main_sql:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "未能生成有效的SQL语句",
+                "explanation": sql_result.get("explanation", "")
+            }, ensure_ascii=False, indent=2))]
+        
+        # 2. 验证主SQL
+        validation_result = _validate_sql(main_sql)
+        if not validation_result.get("is_valid"):
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "SQL验证失败",
+                "validation": validation_result,
+                "sql": main_sql
+            }, ensure_ascii=False, indent=2))]
+        
+        # 3. 执行SQL
+        logger.info(f"智能执行(回退) - 主SQL: {main_sql}")
+        logger.info(f"是否需要验证: {requires_verification}, 验证SQL: '{follow_up_sql}'")
+        logger.info(f"验证SQL不为空: {bool(follow_up_sql and follow_up_sql.strip())}")
+        logger.info(f"是否满足多步执行条件: {requires_verification and bool(follow_up_sql and follow_up_sql.strip())}")
+        
+        # 强制调试：确保验证查询被执行
+        if sql_type == "INSERT" and not follow_up_sql.strip():
+            # 如果AI没有生成验证查询，自动生成一个
+            logger.warning("AI没有生成验证查询，自动生成一个")
+            # 获取表名
+            import re
+            table_match = re.search(r'INSERT\s+INTO\s+(\w+)', main_sql, re.IGNORECASE)
+            if table_match:
+                table_name = table_match.group(1)
+                # 如果表名是sys_user，生成验证查询
+                if table_name.lower() == "sys_user":
+                    # 找到用户名
+                    name_match = re.search(r"VALUES\s*\([^)]*'([^']+)'[^)]*\)", main_sql)
+                    if name_match:
+                        username = name_match.group(1)
+                        follow_up_sql = f"SELECT * FROM {table_name} WHERE name = '{username}'"
+                        requires_verification = True
+                        logger.info(f"自动生成的验证查询: {follow_up_sql}")
+        
+        # 如果有验证查询，使用多步执行
+        if requires_verification and follow_up_sql and follow_up_sql.strip():
+            logger.info(f"回退逻辑: 执行多步SQL，主SQL: {main_sql[:100]}..., 验证SQL: {follow_up_sql[:100]}...")
+            # 使用多步执行
+            multi_step_result = db_connector.execute_multi_step_sql(main_sql, follow_up_sql, None)
+            logger.info(f"回退逻辑: 多步执行结果类型: {type(multi_step_result)}")
+            logger.info(f"回退逻辑: 多步执行结果 - success: {multi_step_result.get('success')}")
+            logger.info(f"回退逻辑: 主执行结果: {multi_step_result.get('main_execution')}")
+            logger.info(f"回退逻辑: 验证执行结果: {multi_step_result.get('follow_up_execution')}")
+            
+            # 检查主SQL是否成功（主SQL失败会导致整个操作失败）
+            main_execution = multi_step_result.get("main_execution")
+            if not main_execution or not main_execution.get("success", False):
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": multi_step_result.get("error", "主SQL执行失败"),
+                    "sql": main_sql
+                }, ensure_ascii=False, indent=2))]
+            
+            # 准备返回结果
+            combined_result = {
+                "success": True,  # 主SQL成功就是成功
+                "sql_generation": sql_result,
+                "main_execution": main_execution,
+                "follow_up_execution": multi_step_result.get("follow_up_execution"),
+                "execution_mode": "multi_step_with_verification",
+                "overall_status": "main_sql_success"
+            }
+            
+            # 处理验证结果
+            follow_up_execution = multi_step_result.get("follow_up_execution")
+            if follow_up_execution:
+                if follow_up_execution.get("success", False):
+                    if follow_up_execution.get("verification_status") == "no_data_found":
+                        combined_result["overall_status"] = "main_success_verification_no_data"
+                        combined_result["warning"] = "主SQL执行成功，但验证查询未找到匹配的数据"
+                    else:
+                        combined_result["overall_status"] = "main_success_verification_success"
+                else:
+                    combined_result["overall_status"] = "main_success_verification_failed"
+                    combined_result["warning"] = follow_up_execution.get("warning", "主SQL执行成功，但验证查询失败")
+            
+            combined_result["explanation"] = f"AI检测到这是数据变更操作。{sql_result.get('explanation', '')}"
+            
+            # 如果主SQL是INSERT且有自增ID，在结果中添加
+            if main_execution and sql_type == "INSERT" and main_execution.get("insert_id"):
+                combined_result["inserted_id"] = main_execution["insert_id"]
+                
+        else:
+            # 单步执行（不需要验证或没有验证SQL）
+            main_result = db_connector.execute_sql(main_sql, None)
+            
+            if not main_result.get("success", False):
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": main_result.get("error", "执行SQL失败"),
+                    "sql": main_sql
+                }, ensure_ascii=False, indent=2))]
+            
+            combined_result = {
+                "success": True,
+                "sql_generation": sql_result,
+                "main_execution": main_result,
+                "follow_up_execution": None,
+                "execution_mode": "single_step",
+                "explanation": sql_result.get("explanation", "")
+            }
+        
+        return [TextContent(type="text", text=json.dumps(combined_result, ensure_ascii=False, indent=2))]
+    
+    except Exception as e:
+        logger.error(f"智能执行(回退)失败: {e}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, ensure_ascii=False, indent=2))]
+
+
 async def _handle_get_status() -> list:
     """处理获取状态请求"""
     config_loader = get_config_loader()
@@ -363,6 +564,13 @@ def _build_sql_prompt(query: str, user_context: Dict[str, Any]) -> str:
         prompt_parts.append("\n查询规则:")
         for rule in select_rules:
             prompt_parts.append(f"- {rule}")
+
+    # 操作原则
+    operation_principles = instructions.get('operation_principles', [])
+    if operation_principles:
+        prompt_parts.append("\n操作原则:")
+        for principle in operation_principles:
+            prompt_parts.append(f"- {principle}")
 
     # 输出格式
     prompt_parts.append("\n输出JSON:")

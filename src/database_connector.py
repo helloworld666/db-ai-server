@@ -628,3 +628,42 @@ class DatabaseConnector:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """支持上下文管理器"""
         self.disconnect()
+    
+    def execute_multi_step_sql(self, main_sql: str, follow_up_sql: str, params: Optional[tuple] = None) -> Dict[str, Any]:
+        """
+        执行多步SQL（主SQL + 验证查询）
+        
+        Args:
+            main_sql: 主SQL语句（通常是INSERT/UPDATE/DELETE）
+            follow_up_sql: 验证查询SQL（通常是SELECT查询）
+            params: 查询参数（防止SQL注入）
+            
+        Returns:
+            执行结果字典，包含主SQL执行结果和验证查询结果
+        """
+        logger.info(f"执行多步SQL - 主SQL: {main_sql[:100]}...")
+        logger.info(f"执行多步SQL - 验证SQL: {follow_up_sql[:100]}...")
+        
+        # 执行主SQL（INSERT/UPDATE/DELETE）
+        main_result = self.execute_update(main_sql, params)
+        
+        if not main_result.get('success'):
+            return {
+                'success': False,
+                'error': main_result.get('error', '主SQL执行失败'),
+                'main_execution': main_result,
+                'follow_up_execution': None
+            }
+        
+        # 如果主SQL成功，执行验证查询
+        follow_up_result = self.execute_query(follow_up_sql, None)
+        
+        logger.info(f"多步SQL执行完成 - 主SQL结果: {main_result.get('success')}, 验证SQL结果: {follow_up_result.get('success')}")
+        logger.info(f"验证SQL返回行数: {len(follow_up_result.get('rows', []))}")
+        
+        return {
+            'success': True,
+            'main_execution': main_result,
+            'follow_up_execution': follow_up_result,
+            'error': None
+        }

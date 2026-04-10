@@ -79,17 +79,13 @@ class LMStudioClient:
             "model": self.model,
             "messages": messages,
             "stream": stream,
-            "temperature": temperature
+            "temperature": temperature,
+            "max_tokens": num_predict  # 直接使用 max_tokens，而不是 extra_options
         }
 
-        # LM Studio 可能支持这些参数，添加到额外选项中
-        extra_options = {}
+        # 不再使用 extra_options，直接将参数添加到payload
         if num_ctx:
-            extra_options["num_ctx"] = num_ctx
-        if num_predict:
-            extra_options["max_tokens"] = num_predict  # OpenAI 使用 max_tokens
-        if extra_options:
-            payload["extra_options"] = extra_options
+            payload["num_ctx"] = num_ctx
 
         logger.debug(f"Sending request to LM Studio: {self.base_url}/chat/completions")
         logger.debug(f"Model: {self.model}, Prompt length: {len(prompt)}")
@@ -182,16 +178,12 @@ class LMStudioClient:
             "model": self.model,
             "messages": messages,
             "stream": True,
-            "temperature": temperature
+            "temperature": temperature,
+            "max_tokens": num_predict
         }
 
-        extra_options = {}
         if num_ctx:
-            extra_options["num_ctx"] = num_ctx
-        if num_predict:
-            extra_options["max_tokens"] = num_predict
-        if extra_options:
-            payload["extra_options"] = extra_options
+            payload["num_ctx"] = num_ctx
 
         try:
             async with session.post(
@@ -248,7 +240,7 @@ class LMStudioClient:
         }
 
         if num_ctx:
-            payload["extra_options"] = {"num_ctx": num_ctx}
+            payload["num_ctx"] = num_ctx
 
         try:
             async with session.post(
@@ -283,7 +275,8 @@ class LMStudioClient:
                 "model": self.model,
                 "messages": [{"role": "user", "content": "ping"}],
                 "stream": False,
-                "max_tokens": 5
+                "max_tokens": 5,
+                "temperature": 0.1
             }
 
             async with session.post(
