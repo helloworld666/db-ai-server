@@ -243,16 +243,15 @@ async def _handle_generate_sql(arguments: Dict[str, Any]) -> list:
         placeholder_pattern = r'(\?|%\d*[sdfe]|%\([^)]+\)|\$\d|\bparam\d*\b)'
         if re.search(placeholder_pattern, sql, re.IGNORECASE):
             logger.error(f"AI生成的SQL包含占位符，这是不允许的")
-
-        # 生成友好的错误提示
-        error_msg = "数据库操做描述不够具体。请提供更明确的描述，例如：\n"
-        error_msg += "- '更新货架编号为***的货架,将其编号更改为***'\n"
-        error_msg += "- '更新用户名为***的用户为可用状态'"
-        response_data["sql"] = ""
-        response_data["error"] = error_msg
-        response_data["explanation"] = error_msg
-        response_data["risk_level"] = "high"
-        return [TextContent(type="text", text=json.dumps(response_data, ensure_ascii=False, indent=2))]
+            # 生成友好的错误提示
+            error_msg = "数据库操做描述不够具体。请提供更明确的描述，例如：\n"
+            error_msg += "- '更新货架编号为***的货架,将其编号更改为***'\n"
+            error_msg += "- '更新用户名为***的用户为可用状态'"
+            response_data["sql"] = ""
+            response_data["error"] = error_msg
+            response_data["explanation"] = error_msg
+            response_data["risk_level"] = "high"
+            return [TextContent(type="text", text=json.dumps(response_data, ensure_ascii=False, indent=2))]
 
     # 验证SQL
     validation_result = _validate_sql(response_data.get("sql", ""))
