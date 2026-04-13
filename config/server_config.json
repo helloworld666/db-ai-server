@@ -10,9 +10,9 @@
     "model": "qwen2.5-coder-3b-instruct",
     "timeout": 120,
     "max_retries": 3,
-    "temperature": 0.1,
+    "temperature": 0,
     "num_ctx": 4096,
-    "num_predict": 2048
+    "num_predict": 1024
   },
   "database": {
     "schema_file": "config/database_schema.json",
