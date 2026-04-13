@@ -83,9 +83,7 @@ class LMStudioClient:
             "max_tokens": num_predict  # 直接使用 max_tokens，而不是 extra_options
         }
 
-        # 不再使用 extra_options，直接将参数添加到payload
-        if num_ctx:
-            payload["num_ctx"] = num_ctx
+        # 移除 num_ctx 参数，避免 LM Studio API 400 错误
 
         logger.debug(f"Sending request to LM Studio: {self.base_url}/chat/completions")
         logger.debug(f"Model: {self.model}, Prompt length: {len(prompt)}")
@@ -182,8 +180,7 @@ class LMStudioClient:
             "max_tokens": num_predict
         }
 
-        if num_ctx:
-            payload["num_ctx"] = num_ctx
+        # 移除 num_ctx 参数，避免 LM Studio API 400 错误
 
         try:
             async with session.post(
@@ -239,8 +236,7 @@ class LMStudioClient:
             "temperature": temperature
         }
 
-        if num_ctx:
-            payload["num_ctx"] = num_ctx
+        # 移除 num_ctx 参数，避免 LM Studio API 400 错误
 
         try:
             async with session.post(

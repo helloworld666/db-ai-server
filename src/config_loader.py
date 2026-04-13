@@ -58,7 +58,7 @@ class ConfigLoader:
         file_path = self.config_dir / filename
 
         if not file_path.exists():
-            logger.warning(f"Config file not found: {file_path}, using empty config")
+            logger.debug(f"Config file not found: {file_path}, using empty config")
             return {}
 
         try:
@@ -206,6 +206,8 @@ class ConfigLoader:
             所有云端平台配置字典
         """
         return self._cache.get('cloud_platforms', {})
+
+
 
 
 # 全局配置加载器实例

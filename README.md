@@ -14,6 +14,8 @@
 - ✅ **MCP标准**: 完全遵循MCP协议标准
 - ✅ **灵活扩展**: 支持自定义模型、自定义验证规则
 - ✅ **字段注释支持**: 自动查询数据库字段注释，返回中文列头信息
+- ✅ **LangChain Agent**: 基于 LangChain + LangGraph 的智能代理系统
+- ✅ **ReAct 策略**: 推理(Reasoning) + 行动(Action) 的循环模式
 
 ## 📋 目录结构
 
@@ -31,13 +33,18 @@ db-ai-server/
 ├── src/                             # 源代码
 │   ├── __init__.py
 │   ├── mcp_server.py               # MCP服务器主程序
+│   ├── langchain_agent.py          # LangChain Agent实现
+│   ├── langchain_tools.py          # LangChain 工具定义
+│   ├── langchain_llm_adapter.py    # LLM适配器
+│   ├── langgraph_workflow.py       # LangGraph工作流
 │   ├── ollama_client.py            # Ollama客户端
 │   ├── lmstudio_client.py          # LM Studio客户端
-│   ├── cloud_ai_client.py          # 云端AI客户端（支持Deep Seek/通义千问/智谱AI等）
+│   ├── cloud_ai_client.py          # 云端AI客户端
 │   ├── config_loader.py            # 配置加载器
 │   ├── schema_manager.py           # Schema管理器
 │   └── database_connector.py       # 数据库连接器
 ├── docs/                            # 文档目录
+│   ├── C#_CLIENT_INTEGRATION.md   # C#集成指南
 │   └── Cloud_AI_Platforms.md      # 云端AI平台配置指南
 └── tests/                          # 测试
 ```
@@ -304,7 +311,17 @@ SQL安全验证规则
 3. **validate_sql** - 验证SQL安全性
 4. **estimate_rows** - 预估影响行数
 5. **execute_sql** - 执行SQL并返回结果（可直接替换DAO层）
-6. **get_status** - 获取服务器状态
+6. **execute_intelligently** - LangChain Agent 智能执行（自动规划多步操作）
+7. **get_status** - 获取服务器状态
+
+### LangChain Agent
+
+`execute_intelligently` 是基于 LangChain + LangGraph 的智能代理工具：
+
+- **自动规划**: AI自主分析用户意图，自动规划完整操作流程
+- **智能验证**: 数据变更后自动执行验证查询
+- **中间步骤**: 返回详细的推理和执行过程
+- **记忆功能**: 支持对话历史，保持上下文连贯性
 
 ### HTTP API接口
 
@@ -627,6 +644,7 @@ AND TABLE_NAME = '表名'
 - [x] 驼峰命名JSON响应
 - [x] LM Studio 支持
 - [x] 统一推理引擎配置
+- [x] **LangChain Agent 集成** (v2.0.0)
 - [ ] 支持更多数据库类型（PostgreSQL, Oracle等）
 - [ ] 支持流式响应
 - [ ] Web管理界面

@@ -1,38 +1,40 @@
-# C#/.NET 集成指南 - 智能代理系统
+# C#/.NET 集成指南 - LangChain 智能代理系统
 
 ## 📖 概述
 
 本文档详细说明如何在 C#/.NET 项目中集成 DB-AI-Server 的智能代理系统，实现通过自然语言完成复杂的多步数据库操作。
 
+**技术栈**：基于 LangChain + LangGraph 开发平台
+
 ## 🎯 核心优势
 
-### 智能代理系统
-- **Agent架构**：Memory + Planning + Tools + Action
+### LangChain Agent 系统
+- **ReAct 策略**：推理(Reasoning) + 行动(Action) 的循环模式
 - **自动多步规划**：AI自主分析用户意图，自动规划完整的操作流程
-- **智能验证**：数据变更操作后自动执行验证查询
+- **智能工具调用**：根据推理结果动态调用合适的工具
 - **完整数据返回**：INSERT/UPDATE后自动查询并返回最新数据
 
 ### 开发效率提升
 - **无需编写数据访问层**：通过自然语言描述直接完成复杂操作
 - **智能查询优化**：自动提供性能优化建议
 - **安全可控**：多层验证、风险评估、权限控制
-- **快速开发**：界面用户输入 → 智能代理 → 完整结果，开发效率大幅提升
+- **快速开发**：界面用户输入 → LangChain Agent → 完整结果，开发效率大幅提升
 
-## 🚀 智能代理功能
+## 🚀 LangChain Agent 功能
 
-### Agent架构详解
-- **Memory** - 记忆对话历史和操作记录，保持上下文连贯性
-- **Planning** - 自动规划多步任务，将复杂需求分解为可执行步骤
-- **Tools** - 6个核心工具供LLM自主调用
-- **Action** - 执行工具并返回结果，形成完整操作闭环
+### Agent 架构
+- **Reasoning** - 推理用户意图，选择合适的工具
+- **Action** - 执行工具并获取结果
+- **Observation** - 观察结果，决定下一步行动
+- **Memory** - 记忆对话历史，保持上下文连贯性
 
-### 可用工具：
-1. `execute_sql` - 执行SQL语句
-2. `query_data` - 查询数据库数据  
-3. `analyze_results` - 分析查询结果
-4. `generate_sql` - 生成SQL语句
-5. `validate_data` - 验证数据操作
-6. `get_schema` - 获取表结构
+### 可用工具（LangChain Tools）：
+1. `execute_sql` - 执行SQL语句（SELECT/INSERT/UPDATE/DELETE）
+2. `query_data` - 查询数据库数据
+3. `get_schema` - 获取数据库表结构
+4. `validate_sql` - 验证SQL安全性
+5. `generate_sql` - 生成SQL语句
+6. `analyze_results` - 分析查询结果
 
 ## 📡 C#客户端调用方式
 
@@ -74,40 +76,19 @@
 5. 📊 执行验证查询
 6. ✅ 返回新插入的数据
 
-### 3. 返回结果格式
+### 3. 返回结果格式（LangChain Agent）
 
 ```json
 {
   "success": true,
-  "operation": "insert",
-  "user_query": "添加用户yh，真实姓名yunhai，密码123，角色ID为1",
-  "execution_summary": {
-    "sql_generated": "INSERT INTO sys_user (name, real_name, password, role_id) VALUES ('yh', 'yunhai', MD5('123'), 1);",
-    "sql_executed": "INSERT INTO sys_user (name, real_name, password, role_id) VALUES ('yh', 'yunhai', MD5('123'), 1);",
-    "affected_rows": 1,
-    "insert_id": 35,
-    "row_count": 1
-  },
-  "data_available": true,
-  "data": [
-    {
-      "id": 35,
-      "name": "yh",
-      "real_name": "yunhai",
-      "role_id": 1,
-      "enable": 1,
-      "create_time": "2026-04-10 15:12:11"
-    }
+  "agent_type": "langchain",
+  "response": "INSERT操作成功，已添加新用户yh",
+  "intermediate_steps": [
+    {"tool": "generate_sql", "input": "添加用户yh", "output": "INSERT INTO ..."},
+    {"tool": "execute_sql", "input": "INSERT INTO ...", "output": "affected_rows: 1"}
   ],
-  "message": "插入成功，新增数据ID: 35，已查询新插入的数据",
-  "complete_workflow": true,
-  "workflow_steps": [
-    "AI理解用户意图",
-    "生成INSERT SQL",
-    "执行INSERT操作",
-    "自动生成验证查询",
-    "执行验证查询",
-    "返回新插入的数据"
+  "memory_summary": [
+    {"timestamp": "2026-04-13T10:00:00", "content": "用户请求: 添加用户yh"}
   ]
 }
 ```
@@ -1293,22 +1274,24 @@ public class DatabaseInfo
 
 ## 🛠️ 系统配置确认
 
-### 已修复的问题：
-1. ✅ **AI客户端请求格式** - 修复了LM Studio的`extra_options`问题
-2. ✅ **智能代理集成** - Agent系统已集成到MCP服务器
-3. ✅ **多步操作规划** - INSERT操作自动执行验证查询
-4. ✅ **数据返回机制** - 操作后自动查询并返回数据
-
 ### 当前系统状态：
 - **数据库连接**: ✅ 正常 (erack @ localhost:3306)
 - **AI推理引擎**: ✅ 正常 (LM Studio + qwen2.5-coder-3b-instruct)
-- **智能代理**: ✅ 已初始化 (6个工具)
+- **LangChain Agent**: ✅ 已初始化 (基于 LangChain v0.3+)
 - **MCP服务器**: ✅ 运行正常
+
+### LangChain 依赖：
+```
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langgraph>=0.2.0
+```
 
 ## 🏆 最佳实践
 
-1. **优先使用智能代理**：C#客户端应优先调用`execute_intelligently`工具
-2. **处理完整工作流**：显示AI执行步骤，增强用户体验
+1. **优先使用 LangChain Agent**：C#客户端应优先调用`execute_intelligently`工具
+2. **处理中间步骤**：展示 LangChain Agent 的推理过程，增强用户体验
 3. **数据展示优化**：使用返回的字段注释优化DataGrid列头显示
 4. **错误处理完整**：捕获并显示完整的错误信息和工作流状态
 5. **日志记录**：记录所有智能代理操作，便于问题排查
@@ -1352,4 +1335,6 @@ public async Task<JObject> ExecuteIntelligentlyAsync(string userQuery)
 
 ---
 
-**总结**: 现在C#客户端只需要调用`execute_intelligently`工具，传入自然语言查询，系统就会自动完成所有步骤并返回完整数据和操作结果。这就是真正的智能代理系统！
+**总结**: 现在C#客户端只需要调用`execute_intelligently`工具，传入自然语言查询，系统就会使用 LangChain Agent 自动完成所有步骤并返回完整数据和操作结果。
+
+**技术升级**: 系统已从原生 Agent 迁移到 LangChain 开发平台，享受更强大的 Agent 框架和工具调用能力！
