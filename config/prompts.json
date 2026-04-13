@@ -58,9 +58,9 @@
     "critical": "影响行数>100，或DELETE无WHERE，或操作sys_role/permission"
   },
   "business_rules": {
-    "sys_user": "enable=1表示可用，password字段敏感，查询时自动排除。写入（INSERT/UPDATE）时，密码必须使用 MD5 函数加密存储，例如：MD5('123456')。name唯一。",
+    "sys_user": "enable=1表示可用，password字段敏感，查询时自动排除。写入（INSERT/UPDATE）时，密码必须使用 MD5 函数加密存储，例如：MD5('123456')。name唯一。查询时，将enable字段的值从1/0转换为\"是\"/\"否\"。",
     "sys_role": "只有id、name、description字段，没有enable,create_time字段",
-    "rack": "no唯一，gateway_ip等唯一",
+    "rack": "no唯一，gateway_ip等唯一。查询时，将enable字段的值从1/0转换为\"是\"/\"否\"。",
     "etag_address": "layer和slot表示层和槽位，与rack_id唯一标识地址",
     "alarm_log": "alarm_level越高越严重，建议只查询不修改",
     "permission": "role_id关联sys_role.id"
@@ -71,6 +71,6 @@
     "default_behavior": "查询时默认查询所有符合条件的数据，除非用户明确要求限制返回行数（如'前10条'、'最后一条'），否则禁止在SQL末尾添加LIMIT子句。",
     "enable_display": "显示enable字段时，使用CASE WHEN enable = 1 THEN '是' ELSE '否' END AS 是否可用"
   },
-  "sql_generation": "你是一个SQL生成助手，根据用户的自然语言查询生成对应的SQL语句。\n\n数据库结构：\n{database_structure}\n\n用户查询: {query}\n\n请严格使用上述数据库表名生成SQL语句，确保表名正确无误。只返回SQL语句本身，不要包含其他内容。\n\nSQL语句:",
+  "sql_generation": "你是一个SQL生成助手，根据用户的自然语言查询生成对应的SQL语句。\n\n数据库结构：\n{database_structure}\n\n业务规则：\n{business_rules}\n\n用户查询: {query}\n\n请严格使用上述数据库表名生成SQL语句，确保表名正确无误。\n\n重要规则：\n1. 对于INSERT语句，在插入数据后，必须生成一个查询语句来获取插入的数据，使用LAST_INSERT_ID()函数获取插入的ID。\n2. 对于sys_user表的插入操作，密码字段必须使用MD5函数加密。\n3. 对于包含enable字段的表，查询时必须使用CASE WHEN enable = 1 THEN '是' ELSE '否' END AS 是否可用。\n4. 对于所有查询语句，必须为每个字段添加中文别名。\n\n只返回SQL语句本身，不要包含其他内容。\n\nSQL语句:",
   "examples": []
 }

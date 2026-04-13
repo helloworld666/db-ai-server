@@ -223,7 +223,32 @@ class DatabaseWorkflow:
                     logger.error(f"读取数据库结构失败: {e}")
             
             # 构建提示词
-            prompt = prompt_template.format(database_structure=database_structure, query=query)
+            # 从配置文件中读取业务规则
+            business_rules = ""
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                        if "business_rules" in config:
+                            rules = config["business_rules"]
+                            for table, rule in rules.items():
+                                business_rules += f"- {table}：{rule}\n"
+                except Exception as e:
+                    logger.error(f"读取业务规则失败: {e}")
+
+            # 格式化提示词
+            try:
+                prompt = prompt_template.format(
+                    database_structure=database_structure,
+                    query=query,
+                    business_rules=business_rules
+                )
+            except KeyError:
+                # 如果模板中没有business_rules参数，只传递database_structure和query
+                prompt = prompt_template.format(
+                    database_structure=database_structure,
+                    query=query
+                )
             logger.info(f"生成SQL提示词: {prompt[:100]}...")
 
             # 调用 AI 生成 SQL
@@ -246,13 +271,19 @@ class DatabaseWorkflow:
                     logger.info(f"AI生成文本: {response_text}")
                     
                     # 提取SQL语句
-                    # 移除可能的SQL标记
+                    # 移除可能的SQL标记，处理多条SQL语句
                     import re
-                    sql_match = re.search(r'```(?:sql)?\n(.*?)\n```', response_text, re.DOTALL)
-                    if sql_match:
-                        sql = sql_match.group(1).strip()
+                    # 匹配所有在```sql ... ```块中的内容
+                    sql_blocks = re.findall(r'```(?:sql)?\n(.*?)```', response_text, re.DOTALL)
+                    if sql_blocks:
+                        # 将所有SQL块连接在一起，用分号分隔
+                        sql = ';'.join([block.strip() for block in sql_blocks])
                     else:
                         sql = response_text.strip()
+                    
+                    # 检查并处理占位符
+                    if '?' in sql:
+                        logger.warning(f"SQL语句中包含占位符，可能会导致执行失败: {sql}")
                     
                     # 不进行表名映射，直接使用LM Studio生成的SQL
                 except Exception as e:
@@ -333,11 +364,41 @@ class DatabaseWorkflow:
 
         try:
             db_connector = DatabaseConnector(db_config)
-            result = db_connector.execute_sql(sql, None)
-            state["execution_result"] = result
+            
+            # 处理多条SQL语句，每条语句单独执行
+            sql_statements = [stmt.strip() for stmt in sql.split(';') if stmt.strip()]
+            results = []
+            final_result = {"success": True, "rows": [], "affected_rows": 0}
+            
+            for i, stmt in enumerate(sql_statements):
+                if not stmt:
+                    continue
+                
+                try:
+                    stmt_result = db_connector.execute_sql(stmt, None)
+                    results.append(stmt_result)
+                    
+                    if stmt_result.get("success", False):
+                        # 累加影响行数
+                        final_result["affected_rows"] += stmt_result.get("affected_rows", 0)
+                        # 收集查询结果
+                        if "rows" in stmt_result and stmt_result["rows"]:
+                            final_result["rows"].extend(stmt_result["rows"])
+                    else:
+                        # 如果有任何一条语句失败，整体失败
+                        final_result["success"] = False
+                        final_result["error"] = stmt_result.get("error", "SQL执行失败")
+                        break
+                except Exception as e:
+                    final_result["success"] = False
+                    final_result["error"] = f"执行SQL语句失败: {str(e)}"
+                    break
+            
+            state["execution_result"] = final_result
+            
             state["steps"].append({
                 "node": "execute_sql",
-                "success": result.get("success", False),
+                "success": final_result.get("success", False),
                 "timestamp": datetime.now().isoformat()
             })
         except Exception as e:
