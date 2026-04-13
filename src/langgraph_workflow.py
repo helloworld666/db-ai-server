@@ -208,6 +208,17 @@ class DatabaseWorkflow:
                             table_name = table.get("name", "")
                             table_desc = table.get("description", "")
                             database_structure += f"- {table_name}：{table_desc}\n"
+                            # 添加字段信息
+                            columns = table.get("columns", [])
+                            if columns:
+                                database_structure += f"  字段："
+                                column_list = []
+                                for column in columns:
+                                    col_name = column.get("name", "")
+                                    col_type = column.get("type", "")
+                                    col_desc = column.get("description", "")
+                                    column_list.append(f"{col_name}({col_type}, {col_desc})")
+                                database_structure += ", ".join(column_list) + "\n"
                 except Exception as e:
                     logger.error(f"读取数据库结构失败: {e}")
             
