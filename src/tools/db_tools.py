@@ -183,6 +183,11 @@ def create_database_tools(
 
             # 执行SQL
             result = db_connection.execute_sql(sql, params)
+            
+            # 应用 display_mapping 转换（后端处理，而非依赖AI生成CASE WHEN）
+            if result.get("success") and result.get("data"):
+                result = _apply_display_mapping(result, sql, schema_manager)
+            
             return json.dumps(result, ensure_ascii=False, indent=2)
 
         except Exception as e:
@@ -224,3 +229,71 @@ def create_database_tools(
     ))
 
     return tools
+
+
+def _apply_display_mapping(result: Dict[str, Any], sql: str, schema_manager: SchemaManager) -> Dict[str, Any]:
+    """
+    对查询结果应用 display_mapping 转换
+    1. 将需要转换的字段名改为中文 output_name
+    2. 将值从 1/0 转换为 是/否
+    """
+    import re
+    
+    data = result.get("rows", [])
+    if not data or not isinstance(data, list):
+        return result
+    
+    if not data:
+        return result
+    
+    # 从SQL中提取表名（支持反引号和空格分隔）
+    table_names = set()
+    
+    # 匹配 FROM/RACK/JOIN 后的表名（处理 `table` 或 table 格式）
+    patterns = [
+        r'(?:FROM|JOIN)\s+[`"]?([a-zA-Z_][a-zA-Z0-9_]*)[`"]?',
+    ]
+    
+    for pattern in patterns:
+        for match in re.finditer(pattern, sql, re.IGNORECASE):
+            table_name = match.group(1).lower()
+            table_names.add(table_name)
+    
+    if not table_names:
+        logger.debug(f"无法从SQL中提取表名: {sql[:100]}")
+        return result
+    
+    # 构建字段映射：原始字段名 -> (output_name, display_mapping)
+    field_to_info = {}
+    
+    for table_name in table_names:
+        table_mappings = schema_manager.get_table_display_mappings(table_name)
+        for col_name, mapping_info in table_mappings.items():
+            if mapping_info.get("display_mapping"):
+                field_to_info[col_name.lower()] = {
+                    "output_name": mapping_info.get("output_name", col_name),
+                    "mapping": mapping_info["display_mapping"]
+                }
+    
+    if not field_to_info:
+        logger.debug(f"表 {table_names} 没有 display_mapping 配置")
+        return result
+    
+    # 转换数据：重命名列头 + 转换值
+    converted_data = []
+    for row in data:
+        if isinstance(row, dict):
+            new_row = {}
+            for key, value in row.items():
+                key_lower = key.lower().strip('`')
+                if key_lower in field_to_info:
+                    info = field_to_info[key_lower]
+                    new_row[info["output_name"]] = info["mapping"].get(str(value), value)
+                else:
+                    new_row[key] = value
+            converted_data.append(new_row)
+        else:
+            converted_data.append(row)
+    
+    result["rows"] = converted_data
+    return result

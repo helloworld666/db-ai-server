@@ -32,7 +32,7 @@ from src.database.prompts import PromptManager
 from src.database.llm_client import get_ai_client
 from src.security.validator import SQLValidator
 from src.agents.sql_agent import SQLAgent
-from src.tools.db_tools import create_database_tools
+from src.tools.db_tools import create_database_tools, _apply_display_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +275,8 @@ def register_tools():
                     }, ensure_ascii=False))]
 
                 result = db_connection.execute_sql(sql, None)
+                # 应用 display_mapping 转换
+                result = _apply_display_mapping(result, sql, schema_manager)
                 return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
             elif name == "get_server_status":
