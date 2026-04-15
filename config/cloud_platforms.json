@@ -1,0 +1,39 @@
+{
+  "version": "1.0.0",
+  "description": "云端AI平台配置",
+  "deepseek": {
+    "name": "DeepSeek",
+    "default_base_url": "https://api.deepseek.com/v1",
+    "default_model": "deepseek-chat",
+    "supports_streaming": true,
+    "auth_type": "bearer"
+  },
+  "qwen": {
+    "name": "通义千问",
+    "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "default_model": "qwen-plus",
+    "supports_streaming": true,
+    "auth_type": "bearer"
+  },
+  "zhipu": {
+    "name": "智谱AI",
+    "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "default_model": "glm-4-flash",
+    "supports_streaming": true,
+    "auth_type": "bearer"
+  },
+  "openai": {
+    "name": "OpenAI",
+    "default_base_url": "https://api.openai.com/v1",
+    "default_model": "gpt-4o-mini",
+    "supports_streaming": true,
+    "auth_type": "bearer"
+  },
+  "claude": {
+    "name": "Claude",
+    "default_base_url": "https://api.anthropic.com/v1",
+    "default_model": "claude-3-5-haiku-20241022",
+    "supports_streaming": true,
+    "auth_type": "anthropic"
+  }
+}

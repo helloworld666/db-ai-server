@@ -1,53 +1,92 @@
-# DB-AI-Server
+# DB-AI-Server v2.0
 
-**数据库AI服务器** - 一个独立、可配置的MCP服务器，用于通过AI生成和管理数据库SQL语句。
+**数据库AI服务器** - 基于LangChain + LangGraph的AI驱动SQL生成系统
 
-## 🌟 特性
+## 🌟 核心特性
 
-- ✅ **完整SQL支持**: 支持SELECT查询、UPDATE更新、INSERT插入、DELETE删除操作
-- ✅ **智能查询优化**: 自动分析SQL并提供性能优化建议
-- ✅ **自然语言接口**: 通过自然语言描述直接生成SQL，无需编写数据访问层
-- ✅ **完全独立**: 不依赖任何特定项目，可被任何项目使用
-- ✅ **配置驱动**: 数据库Schema、提示词、规则全部通过JSON/MD配置文件管理
-- ✅ **多引擎支持**: 支持本地LLM（Ollama/LM Studio）和云端AI平台（Deep Seek/通义千问/智谱AI等）
-- ✅ **安全可控**: 多层SQL验证、风险评估、权限控制
-- ✅ **MCP标准**: 完全遵循MCP协议标准
-- ✅ **灵活扩展**: 支持自定义模型、自定义验证规则
-- ✅ **字段注释支持**: 自动查询数据库字段注释，返回中文列头信息
-- ✅ **LangChain Agent**: 基于 LangChain + LangGraph 的智能代理系统
-- ✅ **ReAct 策略**: 推理(Reasoning) + 行动(Action) 的循环模式
+- ✅ **LangChain最佳实践**: 工厂模式、工具注册中心、ReAct Agent
+- ✅ **LangGraph工作流**: 有状态、多步骤的数据库操作流程
+- ✅ **LCEL链式调用**: 声明式组合的SQL生成链
+- ✅ **配置驱动**: 所有配置从JSON文件读取，禁止硬编码
+- ✅ **提示词管理**: 所有提示词从配置文件加载
+- ✅ **LLM自主决策**: 工具调用完全由LLM决定，不硬编码
+- ✅ **完整SQL支持**: SELECT/UPDATE/INSERT/DELETE
+- ✅ **多引擎支持**: OpenAI/DeepSeek/通义千问/Ollama/LM Studio
+- ✅ **安全验证**: SQL注入检测、风险评估
+
+## 📋 架构设计
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    API Layer (HTTP/MCP)                 │
+├─────────────────────────────────────────────────────────┤
+│                  Agent Layer (ReAct)                    │
+│    ┌─────────────────────────────────────────────────┐ │
+│    │  SQL Agent - LLM自主决定工具调用                  │ │
+│    └─────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────┤
+│                Workflow Layer (LangGraph)                │
+│    Intent → Schema → Generate → Validate → Execute      │
+├─────────────────────────────────────────────────────────┤
+│               Tool Layer (Registry)                     │
+│    DB Tools │ SQL Tools │ Meta Tools                  │
+├─────────────────────────────────────────────────────────┤
+│                  Service Layer                          │
+│    LLM Factory │ DB Connection │ Schema Manager        │
+├─────────────────────────────────────────────────────────┤
+│                    Config Layer                         │
+│    Pydantic Settings │ JSON Files (Schema/Prompts)     │
+└─────────────────────────────────────────────────────────┘
+```
 
 ## 📋 目录结构
 
 ```
 db-ai-server/
-├── README.md                          # 项目说明（本文件）
+├── README.md                          # 项目说明
 ├── requirements.txt                   # Python依赖
 ├── setup.py                          # 安装脚本
+├── mcp_server.py                    # MCP服务器入口 (v2.0)
 ├── http_server.py                    # HTTP桥接服务器
 ├── config/                           # 配置目录
 │   ├── server_config.json           # 服务器配置
 │   ├── database_schema.json         # 数据库Schema配置
-│   ├── prompts.json                 # 提示词模板配置
-│   └── security_rules.json          # 安全规则配置
-├── src/                             # 源代码
-│   ├── __init__.py
-│   ├── mcp_server.py               # MCP服务器主程序
-│   ├── langchain_agent.py          # LangChain Agent实现
-│   ├── langchain_tools.py          # LangChain 工具定义
-│   ├── langchain_llm_adapter.py    # LLM适配器
-│   ├── langgraph_workflow.py       # LangGraph工作流
-│   ├── ollama_client.py            # Ollama客户端
-│   ├── lmstudio_client.py          # LM Studio客户端
-│   ├── cloud_ai_client.py          # 云端AI客户端
-│   ├── config_loader.py            # 配置加载器
-│   ├── schema_manager.py           # Schema管理器
-│   └── database_connector.py       # 数据库连接器
-├── docs/                            # 文档目录
-│   ├── C#_CLIENT_INTEGRATION.md   # C#集成指南
-│   └── Cloud_AI_Platforms.md      # 云端AI平台配置指南
-└── tests/                          # 测试
+│   ├── prompts.json                 # 提示词模板
+│   ├── security_rules.json          # 安全规则配置
+│   └── cloud_platforms.json         # 云端平台配置
+├── src/                          # 源代码 (LangChain架构)
+    ├── core/                       # 核心基础设施
+    │   ├── config/settings.py      # Pydantic配置
+    │   ├── exceptions.py            # 异常体系
+    │   └── types.py                # 类型定义
+    ├── llm/                        # LLM层
+    │   ├── factory.py               # LLM工厂
+    │   ├── adapter.py               # ChatModel适配器
+    │   └── providers/               # 各平台Provider
+    ├── database/                    # 数据库层
+    │   ├── connection.py            # 连接管理
+    │   ├── schema.py                # Schema管理
+    │   └── prompts.py               # 提示词管理
+    ├── tools/                       # 工具层
+    │   ├── registry.py              # 工具注册中心
+    │   └── db_tools.py             # 数据库工具
+    ├── agents/                      # Agent层
+    │   └── sql_agent.py             # SQL生成Agent
+    ├── workflows/                   # Workflow层
+    │   └── sql_workflow.py          # SQL工作流
+    ├── chains/                      # Chain层
+    │   └── sql_chains.py            # LCEL链
+    └── api/                         # API层
+        ├── mcp_server.py            # MCP服务
+        └── http_server.py           # HTTP服务
 ```
+
+## 核心原则
+
+1. **禁止硬编码**: 数据库Schema、提示词、规则全部从配置文件读取
+2. **LLM自主决策**: 工具调用完全由LLM根据上下文决定
+3. **配置驱动**: 所有设置通过JSON配置文件管理
+4. **模块化设计**: 清晰的层级划分，高内聚低耦合
 
 ## 🚀 快速开始
 

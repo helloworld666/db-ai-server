@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="DB-AI-Server HTTP API", lifespan=lifespan)
+app = FastAPI(title="DB-AI-Server HTTP API v2.0", version="2.0.0", lifespan=lifespan)
 
 # 添加CORS支持
 app.add_middleware(
@@ -88,15 +88,20 @@ class MCPClient:
 
     async def start(self):
         """启动MCP服务器进程并初始化"""
+        # 直接使用当前Python解释器
+        project_root = Path(__file__).parent
+        python_exe = sys.executable
+        logger.info(f"使用Python: {python_exe}")
+
         self.process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "src/mcp_server.py",
+            python_exe,
+            "mcp_server.py",
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=Path(__file__).parent
+            cwd=project_root
         )
-        logger.info("MCP服务器进程已启动，PID: {}".format(self.process.pid))
+        logger.info(f"MCP服务器进程已启动，PID: {self.process.pid}")
 
         # 启动stderr读取任务
         self.stderr_task = asyncio.create_task(self._read_stderr())
@@ -228,10 +233,10 @@ class MCPClient:
 
         logger.info(f"[TIMING] 发送MCP请求: tool={tool_name}, id={self.request_id}")
         send_time = asyncio.get_event_loop().time()
-        
+
         await self._send_request(request)
         response = await self._read_response()
-        
+
         elapsed = asyncio.get_event_loop().time() - send_time
         logger.info(f"[TIMING] MCP响应接收完成，耗时: {elapsed:.3f}秒")
 
@@ -314,14 +319,14 @@ async def generate_sql(request: GenerateSqlRequest):
     import time
     request_start = time.time()
     logger.info(f"[TIMING] 收到generate_sql请求: '{request.query}', 时间戳: {request_start}")
-    
+
     try:
         query = request.query
         if not query:
             raise HTTPException(status_code=400, detail="缺少query参数")
 
         result = await mcp_client.call_tool("generate_sql", {"query": query})
-        
+
         total_time = time.time() - request_start
         logger.info(f"[TIMING] generate_sql完成，总耗时: {total_time:.3f}秒")
         return result
@@ -332,11 +337,11 @@ async def generate_sql(request: GenerateSqlRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/mcp/execute_intelligently")
+@app.post("/api/execute_intelligently")
 async def execute_intelligently(request: ExecuteIntelligentlyRequest):
     """
     智能执行：AI自主分析用户意图并规划多步操作
-    
+
     请求格式:
     {
         "query": "添加用户test，真实姓名测试用户，密码123456，角色ID为1",
@@ -347,19 +352,19 @@ async def execute_intelligently(request: ExecuteIntelligentlyRequest):
         import time
         request_start = time.time()
         logger.info(f"[TIMING] execute_intelligently开始，query: {request.query[:50]}...")
-        
+
         query = request.query
         user_context = request.user_context or {}
-        
+
         if not query:
             raise HTTPException(status_code=400, detail="缺少query参数")
-        
+
         arguments = {"query": query}
         if user_context:
             arguments["user_context"] = user_context
-            
+
         result = await mcp_client.call_tool("execute_intelligently", arguments)
-        
+
         total_time = time.time() - request_start
         logger.info(f"[TIMING] execute_intelligently完成，总耗时: {total_time:.3f}秒")
         return result
@@ -373,7 +378,7 @@ async def execute_intelligently(request: ExecuteIntelligentlyRequest):
 @app.get("/health")
 async def health_check():
     """健康检查"""
-    return {"status": "ok", "service": "db-ai-server-http"}
+    return {"status": "ok", "service": "db-ai-server-http", "version": "2.0.0"}
 
 
 if __name__ == "__main__":

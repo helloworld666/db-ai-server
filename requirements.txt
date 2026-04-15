@@ -11,6 +11,10 @@ langchain-ollama>=0.2.0
 langgraph>=0.2.0
 langgraph-prebuilt>=0.1.0
 
+# LLM Providers
+langchain-openai
+langchain-anthropic
+
 # Async HTTP Client
 aiohttp>=3.9.0
 aiofiles>=23.2.1

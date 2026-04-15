@@ -46,7 +46,12 @@
         {
           "name": "enable",
           "type": "tinyint",
-          "description": "是否可用：1-可用，0-不可用"
+          "description": "是否可用：1-可用，0-不可用",
+          "display_mapping": {
+            "1": "是",
+            "0": "否"
+          },
+          "output_name": "是否可用"
         }
       ],
       "indexes": []
@@ -192,7 +197,12 @@
         {
           "name": "enable",
           "type": "tinyint(1)",
-          "description": "是否可用：1-可用，0-不可用"
+          "description": "是否可用：1-可用，0-不可用",
+          "display_mapping": {
+            "1": "是",
+            "0": "否"
+          },
+          "output_name": "是否可用"
         }
       ],
       "indexes": []
