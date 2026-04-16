@@ -1,12 +1,12 @@
-# DB-AI-Server v6.0
+# DB-AI-Server v7.0
 
 **数据库AI服务器** - 基于LangChain v1.0的AI驱动SQL生成系统
 
-> **v6.0重大更新**: 全面遵循LangChain v1.0规范，实现零硬编码架构，LLM完全自主决策工具调用。
+> **v7.0重大更新**: 全面遵循LangChain v1.0规范，采用LCEL链式表达式语言，实现模块化架构。
 
 ## 🌟 核心特性
 
-- ✅ **LangChain v1.0**: 使用`bind_tools`标准API
+- ✅ **LangChain v1.0 LCEL**: 使用`Runnable`接口和链式表达式
 - ✅ **零硬编码**: 所有提示词、业务逻辑从配置文件加载
 - ✅ **LLM自主决策**: 工具调用顺序由LLM决定，代码不做干预
 - ✅ **配置驱动**: 所有配置从JSON文件读取
@@ -14,34 +14,37 @@
 - ✅ **多引擎支持**: OpenAI/DeepSeek/通义千问/Ollama/LM Studio
 - ✅ **安全验证**: SQL注入检测、风险评估
 
-## 📋 架构设计 (v6.0)
+## 📋 架构设计 (v7.0)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    API Layer (HTTP/MCP)                 │
+│                    MCP Server Layer                       │
 ├─────────────────────────────────────────────────────────┤
-│                  Agent Layer (ReAct)                     │
+│                    Agent Layer                           │
 │    ┌─────────────────────────────────────────────────┐  │
 │    │  ReAct Agent - LLM自主决策工具调用                │  │
 │    │  流程: LLM决定 → 执行工具 → LLM决定下一步...      │  │
 │    └─────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────┤
-│               Tools Layer (@tool装饰器)                  │
-│    get_database_schema │ execute_sql │ validate_sql      │
+│                    Chains Layer (LCEL)                   │
+│    SQL Generation Chain │ Validation Chain               │
 ├─────────────────────────────────────────────────────────┤
-│               Service Layer                             │
-│    LLM Factory │ DB Connection │ Schema Manager         │
+│               Tools Layer (@tool装饰器)                  │
+│    Tool Registry - 统一工具管理                           │
+├─────────────────────────────────────────────────────────┤
+│               Schema Layer                              │
+│    SchemaManager - 动态Schema加载                        │
 ├─────────────────────────────────────────────────────────┤
 │                    Config Layer                         │
 │    prompts.json │ security_rules.json │ database_schema  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**v6.0架构优势**:
-- 遵循LangChain v1.0规范，使用`bind_tools` API
-- 零硬编码：所有提示词从`prompts.json`加载
+**v7.0架构优势**:
+- 使用LangChain v1.0 LCEL表达式语言
+- 模块化设计：agents, chains, tools, schema, config
+- 零硬编码：所有提示词从配置文件加载
 - LLM完全自主：决定调用哪些工具、调用顺序
-- 支持复杂工作流：如"更新并返回结果"自动完成
 
 ## 📋 目录结构
 
@@ -50,45 +53,62 @@ db-ai-server/
 ├── README.md                          # 项目说明
 ├── requirements.txt                   # Python依赖
 ├── setup.py                          # 安装脚本
-├── mcp_server.py                    # MCP服务器入口 (v6.0)
-├── http_server.py                    # HTTP桥接服务器
+├── mcp_server.py                    # MCP服务器入口 (v7.0)
 ├── config/                           # 配置目录
 │   ├── server_config.json           # 服务器配置
 │   ├── database_schema.json         # 数据库Schema配置
-│   ├── prompts.json                 # 提示词模板（v6.0：Agent提示词）
+│   ├── prompts.json                 # 提示词模板
 │   ├── security_rules.json          # 安全规则配置
 │   └── cloud_platforms.json         # 云端平台配置
-├── src/                          # 源代码 (LangChain v1.0标准)
-    ├── core/                       # 核心基础设施
-    │   ├── config/settings.py      # Pydantic配置
-    │   ├── exceptions.py            # 异常体系
-    │   └── types.py                # 类型定义
+└── src/                          # 源代码 (LangChain v1.0标准)
+    ├── __init__.py                 # 版本和模块说明
+    ├── main.py                      # 主入口
+    ├── config/                      # 配置管理
+    │   ├── __init__.py
+    │   ├── settings.py             # Pydantic配置模型
+    │   └── loader.py               # 配置加载器
     ├── llm/                        # LLM层
-    │   ├── adapter.py               # ChatModel适配器
-    │   └── factory.py               # LLM工厂
+    │   ├── __init__.py
+    │   ├── factory.py              # LLM工厂
+    │   └── adapter.py              # ChatModel适配器
+    ├── schema/                      # Schema层
+    │   ├── __init__.py
+    │   └── manager.py              # Schema管理器
     ├── database/                    # 数据库层
+    │   ├── __init__.py
     │   ├── connection.py            # 连接管理
-    │   ├── schema.py                # Schema管理
-    │   ├── prompts.py               # 提示词管理（从JSON加载）
-    │   └── llm_client.py            # AI客户端工厂
-    ├── tools/                       # 工具层 (@tool装饰器)
-    │   └── db_tools.py             # 数据库工具
+    │   └── llm_client.py           # AI客户端工厂
+    ├── security/                    # 安全层
+    │   ├── __init__.py
+    │   └── validator.py            # SQL验证器
+    ├── prompts/                     # 提示词层
+    │   ├── __init__.py
+    │   └── manager.py              # 提示词管理器
+    ├── tools/                       # 工具层
+    │   ├── __init__.py
+    │   └── registry.py             # 工具注册表
     ├── agents/                      # Agent层
-    │   └── react_agent.py           # ReAct Agent（v6.0）
-    └── security/                    # 安全层
-        └── validator.py             # SQL验证器
+    │   ├── __init__.py
+    │   └── react_agent.py          # ReAct Agent
+    ├── chains/                      # Chains层 (LCEL)
+    │   ├── __init__.py
+    │   ├── sql_chain.py            # SQL生成链
+    │   └── validation_chain.py     # 验证链
+    └── mcp/                         # MCP服务层
+        ├── __init__.py
+        └── server.py               # MCP服务器实现
 ```
 
 ## 核心原则
 
-1. **零硬编码**: 
+1. **零硬编码**:
    - 所有提示词从`prompts.json`加载
    - 所有业务逻辑由LLM决策，代码不做判断
    - 数据库Schema从配置文件读取
 2. **LLM自主决策**: 工具调用顺序由LLM决定，代码只执行不决策
 3. **配置驱动**: 所有设置通过JSON配置文件管理
 4. **模块化设计**: 清晰的层级划分，高内聚低耦合
-5. **LangChain v1.0**: 使用`bind_tools`标准API
+5. **LangChain v1.0**: 使用LCEL表达式语言和Runnable接口
 
 ## 🚀 快速开始
 

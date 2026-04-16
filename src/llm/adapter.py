@@ -1,8 +1,11 @@
-"""LangChain ChatModel适配器 - 简化版"""
+"""LangChain ChatModel适配器
+
+将各种AI客户端适配为LangChain标准接口
+"""
 import json
 import logging
-import re
 from typing import Any, Dict, List, Optional
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -14,8 +17,10 @@ logger = logging.getLogger(__name__)
 
 class ChatModelAdapter(BaseChatModel):
     """
-    LangChain ChatModel 适配器 - 简化版
+    LangChain ChatModel 适配器
+
     将AI客户端适配为LangChain兼容的接口
+    支持工具调用（bind_tools）
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -32,7 +37,6 @@ class ChatModelAdapter(BaseChatModel):
     ) -> ChatResult:
         """同步生成响应"""
         import asyncio
-
         try:
             loop = asyncio.new_event_loop()
             try:
@@ -56,26 +60,37 @@ class ChatModelAdapter(BaseChatModel):
     ) -> ChatResult:
         """异步生成响应"""
         try:
-            # 分离系统消息和用户消息
             system_message = ""
             user_messages = []
+            tool_calls = []
+            tools = kwargs.get("tools", [])
+
             for msg in messages:
                 if isinstance(msg, HumanMessage):
-                    user_messages.append(msg.content)
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        tool_calls.extend(msg.tool_calls)
+                    else:
+                        user_messages.append(msg.content)
                 elif isinstance(msg, SystemMessage):
                     system_message = msg.content
 
-            # 构建用户消息内容
             user_content = "\n\n".join(user_messages)
 
-            # 调用AI客户端
-            response = await self.ai_client.generate(
-                prompt=user_content,
-                system=system_message,
-                temperature=kwargs.get("temperature", 0.7)
-            )
+            # 检查是否有工具调用
+            if tool_calls and hasattr(self.ai_client, 'generate_with_tools'):
+                response = await self.ai_client.generate_with_tools(
+                    prompt=user_content,
+                    system=system_message,
+                    tools=tools,
+                    temperature=kwargs.get("temperature", 0.7)
+                )
+            else:
+                response = await self.ai_client.generate(
+                    prompt=user_content,
+                    system=system_message,
+                    temperature=kwargs.get("temperature", 0.7)
+                )
 
-            # 解析响应
             content = self._get_content_from_response(response)
 
             return ChatResult(
@@ -99,7 +114,9 @@ class ChatModelAdapter(BaseChatModel):
         if isinstance(response, str):
             return response
         elif isinstance(response, dict):
-            return str(response.get("content", json.dumps(response)))
+            if "content" in response:
+                return response["content"]
+            return json.dumps(response, ensure_ascii=False)
         elif hasattr(response, 'content'):
             return str(response.content)
         else:

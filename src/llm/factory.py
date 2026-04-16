@@ -1,14 +1,9 @@
-"""LLM工厂 - 使用LangChain标准init_chat_model
+"""LLM工厂 - LangChain v1.0 标准实现
 
-参考: https://langchain-doc.cn/v1/python/langchain/models.html
+使用LangChain标准的init_chat_model创建LLM实例
 """
 import logging
 from typing import Any, Dict, Optional
-
-try:
-    from langchain.chat_models import init_chat_model
-except ImportError:
-    init_chat_model = None
 
 from langchain_core.language_models import BaseChatModel
 
@@ -35,12 +30,11 @@ def get_model_identifier(provider: str, model: str) -> str:
         "openai": "openai",
         "anthropic": "anthropic",
         "claude": "anthropic",
-        "deepseek": "openai",  # DeepSeek使用OpenAI兼容接口
-        "qwen": "openai",      # 通义千问使用OpenAI兼容接口
+        "deepseek": "openai",
+        "qwen": "openai",
         "ollama": "ollama",
-        "lmstudio": "openai",  # LM Studio使用OpenAI兼容接口
+        "lmstudio": "openai",
     }
-
     langchain_provider = provider_map.get(provider.lower(), provider.lower())
     return f"{langchain_provider}:{model}"
 
@@ -80,54 +74,46 @@ def create_llm(
         )
 
     # 使用LangChain标准init_chat_model
-    if init_chat_model is not None:
-        try:
-            model_id = get_model_identifier(provider, model)
-            logger.info(f"使用init_chat_model: {model_id}")
+    try:
+        from langchain.chat_models import init_chat_model
+        model_id = get_model_identifier(provider, model)
+        logger.info(f"使用init_chat_model: {model_id}")
 
-            # 构建参数
-            kwargs = {
-                "temperature": temperature,
-            }
+        kwargs = {"temperature": temperature}
 
-            # 对于本地模型(LM Studio/Ollama等)，如果没有api_key，使用占位符
-            local_providers = ["lmstudio", "ollama"]
-            if api_key:
-                kwargs["api_key"] = api_key
-            elif provider.lower() in local_providers:
-                kwargs["api_key"] = "not-needed-for-local-llm"
+        local_providers = ["lmstudio", "ollama"]
+        if api_key:
+            kwargs["api_key"] = api_key
+        elif provider.lower() in local_providers:
+            kwargs["api_key"] = "not-needed-for-local-llm"
 
-            if base_url:
-                kwargs["base_url"] = base_url
-            if max_tokens:
-                kwargs["max_tokens"] = max_tokens
+        if base_url:
+            kwargs["base_url"] = base_url
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
 
-            # 创建模型
-            llm = init_chat_model(model_id, **kwargs)
-            logger.info(f"成功创建LLM: {model_id}, 类型: {type(llm).__name__}")
-            return llm
+        llm = init_chat_model(model_id, **kwargs)
+        logger.info(f"成功创建LLM: {model_id}, 类型: {type(llm).__name__}")
+        return llm
 
-        except Exception as e:
-            logger.warning(f"init_chat_model失败: {e}，回退到适配器模式")
-
-    # 回退：使用适配器
-    logger.info("使用适配器模式创建LLM")
-    from ..database.llm_client import create_llm_client
-
-    ai_client = create_llm_client(config)
-    return ChatModelAdapter(
-        ai_client=ai_client,
-        model_name=f"{provider}_{model}"
-    )
+    except ImportError:
+        logger.warning("LangChain chat_models不可用，使用适配器模式")
+        from ..database.llm_client import create_llm_client
+        ai_client = create_llm_client(config)
+        return ChatModelAdapter(
+            ai_client=ai_client,
+            model_name=f"{provider}_{model}"
+        )
+    except Exception as e:
+        logger.warning(f"init_chat_model失败: {e}，使用适配器模式")
+        from ..database.llm_client import create_llm_client
+        ai_client = create_llm_client(config)
+        return ChatModelAdapter(
+            ai_client=ai_client,
+            model_name=f"{provider}_{model}"
+        )
 
 
 def get_supported_providers() -> list:
     """获取支持的提供商列表"""
-    return [
-        "openai",
-        "anthropic",
-        "deepseek",
-        "qwen",
-        "ollama",
-        "lmstudio"
-    ]
+    return ["openai", "anthropic", "deepseek", "qwen", "ollama", "lmstudio"]

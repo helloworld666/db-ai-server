@@ -1,9 +1,9 @@
-"""ReAct Agent - LangChain v1.0 规范实现
+"""ReAct Agent - LangChain v1.0 标准实现
 
 核心设计原则：
 1. 零硬编码：所有提示词、业务逻辑从配置加载
-2. LLM自主决策：工具调用顺序由LLM决定，代码不做干预
-3. 单一职责：代码只负责工具执行，不处理业务判断
+2. LLM自主决策：工具调用顺序由LLM决定
+3. 单一职责：代码只负责工具执行
 """
 import json
 import logging
@@ -19,16 +19,11 @@ logger = logging.getLogger(__name__)
 class ReActAgent:
     """
     ReAct Agent - 支持工具链调用的通用Agent
-    
+
     职责：
     1. 维护工具集合
     2. 执行LLM决定的工具调用
     3. 管理对话上下文
-    
-    不处理：
-    - 业务逻辑判断
-    - 工具调用顺序决策
-    - SQL生成逻辑
     """
 
     def __init__(
@@ -51,7 +46,7 @@ class ReActAgent:
     ) -> Dict[str, Any]:
         """
         异步调用Agent
-        
+
         流程：
         1. 构建系统提示词（从配置加载）
         2. 循环调用LLM，直到LLM输出最终结果
@@ -59,75 +54,54 @@ class ReActAgent:
         4. 返回最终结果
         """
         logger.info(f"Agent处理查询: {query}")
-        
+
         try:
-            # 构建初始消息
             messages = []
             if self.system_prompt:
                 messages.append(SystemMessage(content=self.system_prompt))
             messages.append(HumanMessage(content=query))
-            
-            # 绑定工具到LLM
+
             llm_with_tools = self.llm.bind_tools(self.tools)
-            
+
             iteration = 0
             execution_log = []
-            
+
             while iteration < self.max_iterations:
                 iteration += 1
                 logger.debug(f"Agent迭代 {iteration}")
-                
-                # 调用LLM
+
                 response = await llm_with_tools.ainvoke(messages)
-                
-                # 检查是否有工具调用请求
+
                 if hasattr(response, 'tool_calls') and response.tool_calls:
-                    # LLM请求调用工具
                     for tool_call in response.tool_calls:
                         tool_name = tool_call.get('name')
                         tool_args = tool_call.get('args', {})
                         tool_id = tool_call.get('id', '')
-                        
+
                         logger.info(f"工具调用: {tool_name}({tool_args})")
-                        
+
                         if tool_name in self.tools_dict:
                             try:
-                                # 执行工具
                                 result = await self.tools_dict[tool_name].ainvoke(tool_args)
                                 execution_log.append({
                                     "tool": tool_name,
                                     "args": tool_args,
                                     "result": result
                                 })
-                                
-                                # 添加工具调用和结果到消息历史
-                                messages.append(AIMessage(
-                                    content="",
-                                    tool_calls=[tool_call]
-                                ))
-                                messages.append(ToolMessage(
-                                    content=str(result),
-                                    tool_call_id=tool_id
-                                ))
+
+                                messages.append(AIMessage(content="", tool_calls=[tool_call]))
+                                messages.append(ToolMessage(content=str(result), tool_call_id=tool_id))
                             except Exception as e:
                                 logger.error(f"工具执行失败 {tool_name}: {e}")
-                                messages.append(ToolMessage(
-                                    content=json.dumps({"error": str(e)}),
-                                    tool_call_id=tool_id
-                                ))
+                                messages.append(ToolMessage(content=json.dumps({"error": str(e)}), tool_call_id=tool_id))
                         else:
                             logger.warning(f"未知工具: {tool_name}")
-                            messages.append(ToolMessage(
-                                content=json.dumps({"error": f"未知工具: {tool_name}"}),
-                                tool_call_id=tool_id
-                            ))
-                    
-                    # 继续循环，让LLM决定下一步
+                            messages.append(ToolMessage(content=json.dumps({"error": f"未知工具: {tool_name}"}), tool_call_id=tool_id))
+
                     continue
-                
-                # LLM输出最终结果
+
                 final_content = response.content if hasattr(response, 'content') else str(response)
-                
+
                 return {
                     "success": True,
                     "result": final_content,
@@ -135,8 +109,7 @@ class ReActAgent:
                     "iterations": iteration,
                     "query": query
                 }
-            
-            # 达到最大迭代次数
+
             logger.warning(f"达到最大迭代次数: {self.max_iterations}")
             return {
                 "success": False,
@@ -144,7 +117,7 @@ class ReActAgent:
                 "execution_log": execution_log,
                 "query": query
             }
-            
+
         except Exception as e:
             logger.error(f"Agent执行失败: {e}")
             return {
@@ -153,11 +126,7 @@ class ReActAgent:
                 "query": query
             }
 
-    def invoke(
-        self,
-        query: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    def invoke(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """同步调用Agent"""
         import asyncio
         return asyncio.run(self.ainvoke(query, context))

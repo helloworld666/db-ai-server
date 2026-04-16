@@ -1,4 +1,7 @@
-"""SQL验证器 - 从配置文件加载规则"""
+"""SQL验证器 - 从配置文件加载规则
+
+所有安全规则必须从配置文件读取，禁止硬编码
+"""
 import json
 import re
 import logging
@@ -56,11 +59,7 @@ class SQLValidator:
         验证SQL语句
 
         Returns:
-            验证结果字典，包含:
-            - is_valid: 是否有效
-            - errors: 错误列表
-            - warnings: 警告列表
-            - sql_type: SQL类型
+            验证结果字典
         """
         result = {
             "is_valid": True,
@@ -130,8 +129,6 @@ class SQLValidator:
     def check_injection(self, sql: str) -> bool:
         """检测SQL注入"""
         sql_upper = sql.upper()
-
-        # 检查常见的注入模式
         injection_patterns = [
             r';\s*(DROP|ALTER|DELETE|UPDATE|INSERT|CREATE|TRUNCATE)',
             r'--.*?(DROP|ALTER|DELETE|UPDATE|INSERT)',
@@ -139,33 +136,17 @@ class SQLValidator:
             r'\bOR\s+\d+\s*=\s*\d+',
             r'\bAND\s+\d+\s*=\s*\d+',
         ]
-
         for pattern in injection_patterns:
             if re.search(pattern, sql_upper, re.IGNORECASE):
                 logger.warning(f"检测到SQL注入模式: {pattern}")
                 return True
-
         return False
 
     def evaluate_risk(self, sql: str, sql_type: str, estimated_rows: int = 1) -> str:
-        """
-        评估SQL风险等级
-
-        Args:
-            sql: SQL语句
-            sql_type: SQL类型
-            estimated_rows: 预估影响行数
-
-        Returns:
-            风险等级: low, medium, high, critical
-        """
+        """评估SQL风险等级"""
         sql_upper = sql.upper()
-
-        # DELETE操作风险最高
         if sql_type == "DELETE":
             return "high" if "WHERE" in sql_upper else "critical"
-
-        # UPDATE操作风险
         if sql_type == "UPDATE":
             if estimated_rows > 100:
                 return "high"
@@ -174,19 +155,14 @@ class SQLValidator:
             if estimated_rows > 10:
                 return "medium"
             return "low"
-
-        # INSERT操作风险较低
         if sql_type == "INSERT":
             if estimated_rows > 10:
                 return "medium"
             return "low"
-
-        # SELECT操作风险最低
         if sql_type == "SELECT":
             if estimated_rows > 1000:
                 return "medium"
             return "low"
-
         return "medium"
 
     def generate_suggestions(self, sql: str, sql_type: str) -> List[str]:
@@ -194,33 +170,16 @@ class SQLValidator:
         suggestions = []
         if not sql:
             return suggestions
-
         sql_upper = sql.upper()
-
         if sql_type == "SELECT":
             if "SELECT *" in sql_upper:
                 suggestions.append("建议明确指定查询字段，避免使用SELECT *")
             if "LIMIT" not in sql_upper:
                 suggestions.append("建议添加LIMIT限制")
-            if "LIKE '%%" in sql_upper:
-                suggestions.append("前缀模糊查询无法使用索引")
-            if sql_upper.count("JOIN") > 3:
-                suggestions.append("多个JOIN可能影响性能")
-
         elif sql_type == "UPDATE":
             if "WHERE" not in sql_upper:
                 suggestions.append("UPDATE缺少WHERE条件，将更新整表数据")
-            if sql_upper.count(",") > 5:
-                suggestions.append("一次更新多个字段")
-
         elif sql_type == "DELETE":
             if "WHERE" not in sql_upper:
                 suggestions.append("DELETE缺少WHERE条件，将删除整表数据")
-            else:
-                suggestions.append("删除操作不可恢复，建议先备份")
-
-        elif sql_type == "INSERT":
-            if "VALUES" in sql_upper and sql_upper.count("VALUES") > 1:
-                suggestions.append("建议使用批量INSERT")
-
         return suggestions

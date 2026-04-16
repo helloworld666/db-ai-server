@@ -1,7 +1,9 @@
-"""数据库Schema管理"""
+"""数据库Schema管理器 - 从配置文件动态加载
+
+所有Schema信息必须从配置文件读取，禁止硬编码
+"""
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -9,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class SchemaManager:
-    """数据库Schema管理器 - 从配置文件动态加载"""
+    """数据库Schema管理器"""
 
     def __init__(self, config_path: str = "config"):
         """
@@ -29,7 +31,7 @@ class SchemaManager:
         if schema_file.exists():
             with open(schema_file, "r", encoding="utf-8") as f:
                 self._schema_cache = json.load(f)
-            logger.info(f"已加载Schema，包含 {len(self._schema_cache.get('tables', []))} 个表")
+            logger.info(f"已加载Schema，包含 {len(self.get_all_table_names())} 个表")
         else:
             self._schema_cache = {"tables": []}
             logger.warning(f"Schema配置文件不存在: {schema_file}")
@@ -146,45 +148,3 @@ class SchemaManager:
                     "output_name": column.get("output_name", column["name"])
                 }
         return mappings
-
-    def generate_display_sql(self, table_name: str, column_name: str) -> str:
-        """为指定表的字段生成显示转换SQL片段"""
-        mapping = self.get_column_display_mapping(table_name, column_name)
-        if not mapping or not mapping.get("display_mapping"):
-            return column_name
-
-        display_map = mapping["display_mapping"]
-        output_name = mapping.get("output_name", column_name)
-
-        cases = [f"WHEN {column_name} = '{k}' THEN '{v}'" for k, v in display_map.items()]
-        else_part = f"ELSE {column_name} END"
-        return f"CASE {column_name} {' '.join(cases)} {else_part} AS `{output_name}`"
-
-    def estimate_affected_rows(self, sql: str) -> int:
-        """预估SQL影响行数"""
-        try:
-            sql_lower = sql.lower().strip()
-
-            if sql_lower.startswith(("update", "delete")):
-                # 检查IN子句
-                in_match = re.search(r'in\s*\(([^)]+)\)', sql_lower)
-                if in_match:
-                    values = in_match.group(1).split(',')
-                    return min(len(values), 1000)
-
-                # 检查LIKE模式
-                like_match = re.search(r"like\s+'([^']*)'", sql_lower)
-                if like_match:
-                    return 10
-
-                return -2  # 需要实际查询
-
-            elif sql_lower.startswith("insert"):
-                if "select" in sql_lower:
-                    return -2
-                return 1
-
-            return -2
-
-        except Exception:
-            return -2

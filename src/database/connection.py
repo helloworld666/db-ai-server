@@ -20,12 +20,7 @@ class DatabaseConnection:
     """数据库连接管理器"""
 
     def __init__(self, connection_string: str):
-        """
-        初始化数据库连接器
-
-        Args:
-            connection_string: 连接字符串，格式: mysql://user:password@host:port/database
-        """
+        """初始化数据库连接器"""
         if not PYMYSQL_AVAILABLE:
             raise ImportError("pymysql未安装，请运行: pip install pymysql")
 
@@ -35,7 +30,6 @@ class DatabaseConnection:
 
     def _parse_connection_string(self, conn_str: str) -> Dict[str, Any]:
         """解析连接字符串"""
-        # 移除协议前缀
         for prefix in ['mysql+pymysql://', 'mysql://']:
             conn_str = conn_str.replace(prefix, '')
 
@@ -46,19 +40,16 @@ class DatabaseConnection:
         user_password = parts[0]
         host_port_db = parts[1]
 
-        # 解析用户密码
         if ':' in user_password:
             user, password = user_password.split(':', 1)
         else:
             user, password = user_password, ''
 
-        # 解析主机端口数据库
         if '/' in host_port_db:
             host_port, database = host_port_db.split('/', 1)
         else:
             host_port, database = host_port_db, ''
 
-        # 解析主机端口
         if ':' in host_port:
             host, port = host_port.split(':')
             port = int(port)
@@ -160,7 +151,6 @@ class DatabaseConnection:
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
             rows = self._convert_datetimes(rows)
 
-            # 获取字段注释
             column_comments = self._get_column_comments(sql, columns)
 
             return {
