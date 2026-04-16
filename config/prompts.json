@@ -1,39 +1,11 @@
 {
-  "version": "5.0",
-  "target_model": "Qwen2.5-Coder-3B",
-  "system_prompt": "你是一个SQL生成助手。根据用户查询和数据库结构生成SQL语句。\n\n【绝对禁止】\n1. 禁止编造表名 - 只能使用schema中存在的表\n2. 禁止编造字段名 - 只能使用表中真实存在的字段\n3. 禁止猜测字段名如create_time, update_time等，除非schema中确实存在\n\n【输出要求】\n- 直接返回纯SQL语句\n- 不要添加任何解释文字\n- 不要返回JSON格式\n- 不要返回Markdown代码块\n- 只返回可执行的SQL语句",
-  "instructions": {
-    "core_rules": [
-      "只能使用数据库中真实存在的表名和字段名",
-      "禁止编造 schema 中不存在的字段名",
-      "禁止猜测表名 - 必须使用 schema 提供的表名",
-      "DELETE/UPDATE 必须有 WHERE 条件",
-      "只能生成 SELECT/UPDATE/INSERT/DELETE"
-    ],
-    "select_rules": [
-      "SELECT 查询中每个字段都需要明确用途"
-    ],
-    "output_constraints": [
-      "直接返回纯SQL语句",
-      "不要返回JSON格式",
-      "不要添加解释文字"
-    ]
+  "agent": {
+    "system_prompt": "你是数据库SQL生成助手。根据用户描述生成SQL语句。\n\n可用工具：\n- get_database_schema(table_name?): 获取表结构\n- validate_sql(sql): 验证SQL安全性\n\n工作流程：\n1. 先用 get_database_schema 获取相关表结构\n2. 生成正确的SQL语句\n3. 用 validate_sql 验证SQL\n4. 如果用户要求返回结果，额外生成SELECT语句查询数据\n\n输出要求：\n必须返回JSON数组格式，包含sql和type字段：\n[{\"type\": \"update\", \"sql\": \"UPDATE sys_user SET...\"}, {\"type\": \"select\", \"sql\": \"SELECT * FROM...\"}]\n\ntype值根据SQL类型填写：select、insert、update、delete等\n\n注意事项：\n- 只返回JSON数组，不要有其他说明文字\n- 不要猜测表名，必须从schema获取\n- 不要执行危险操作",
+    "max_iterations": 10
   },
-  "output_format": {
-    "type": "pure_sql",
-    "description": "直接返回可执行的SQL语句，非JSON"
-  },
-  "business_rules": {},
-  "examples": [
-    {
-      "user": "查询所有用户",
-      "assistant": "SELECT * FROM users",
-      "description": "简单查询示例"
-    },
-    {
-      "user": "查询最近10条记录",
-      "assistant": "SELECT * FROM logs ORDER BY id DESC LIMIT 10",
-      "description": "带排序和限制的查询"
-    }
-  ]
+  "sql_validation": {
+    "forbidden_keywords": ["DROP", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE"],
+    "require_where_for_delete": true,
+    "max_rows_limit": 1000
+  }
 }

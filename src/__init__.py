@@ -18,7 +18,7 @@ from .core.exceptions import (
     ConfigurationError,
 )
 from .llm.factory import create_llm, get_model_identifier
-from .agents.sql_agent import SQLAgent, create_sql_agent
+from .agents.react_agent import ReActAgent, create_react_agent
 from .database.connection import DatabaseConnection
 from .database.schema import SchemaManager
 from .security.validator import SQLValidator
@@ -29,8 +29,8 @@ __all__ = [
     "get_settings",
     "create_llm",
     "get_model_identifier",
-    "SQLAgent",
-    "create_sql_agent",
+    "ReActAgent",
+    "create_react_agent",
     "DatabaseConnection",
     "SchemaManager",
     "SQLValidator",

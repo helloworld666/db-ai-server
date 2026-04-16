@@ -1,44 +1,47 @@
-# DB-AI-Server v5.0
+# DB-AI-Server v6.0
 
-**数据库AI服务器** - 简化架构的AI驱动SQL生成系统
+**数据库AI服务器** - 基于LangChain v1.0的AI驱动SQL生成系统
 
-> **v5.0重大更新**: 彻底重构架构，移除复杂的ReAct循环和工具调用机制，采用直接SQL生成模式，更稳定、更可靠。
+> **v6.0重大更新**: 全面遵循LangChain v1.0规范，实现零硬编码架构，LLM完全自主决策工具调用。
 
 ## 🌟 核心特性
 
-- ✅ **简化架构**: 直接SQL生成，无复杂循环
-- ✅ **纯SQL返回**: LLM直接返回可执行SQL，非JSON
-- ✅ **配置驱动**: 所有配置从JSON文件读取，禁止硬编码
-- ✅ **提示词管理**: 所有提示词从配置文件加载
+- ✅ **LangChain v1.0**: 使用`bind_tools`标准API
+- ✅ **零硬编码**: 所有提示词、业务逻辑从配置文件加载
+- ✅ **LLM自主决策**: 工具调用顺序由LLM决定，代码不做干预
+- ✅ **配置驱动**: 所有配置从JSON文件读取
 - ✅ **完整SQL支持**: SELECT/UPDATE/INSERT/DELETE
 - ✅ **多引擎支持**: OpenAI/DeepSeek/通义千问/Ollama/LM Studio
 - ✅ **安全验证**: SQL注入检测、风险评估
 
-## 📋 架构设计 (v5.0简化版)
+## 📋 架构设计 (v6.0)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    API Layer (HTTP/MCP)                 │
 ├─────────────────────────────────────────────────────────┤
-│                  Agent Layer (简化)                      │
+│                  Agent Layer (ReAct)                     │
 │    ┌─────────────────────────────────────────────────┐  │
-│    │  SQL Agent - 直接生成SQL（无工具调用循环）         │  │
-│    │  流程: 获取Schema → 构建提示词 → LLM生成 → 提取SQL │  │
+│    │  ReAct Agent - LLM自主决策工具调用                │  │
+│    │  流程: LLM决定 → 执行工具 → LLM决定下一步...      │  │
 │    └─────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│               Tools Layer (@tool装饰器)                  │
+│    get_database_schema │ execute_sql │ validate_sql      │
 ├─────────────────────────────────────────────────────────┤
 │               Service Layer                             │
 │    LLM Factory │ DB Connection │ Schema Manager         │
 ├─────────────────────────────────────────────────────────┤
 │                    Config Layer                         │
-│    Pydantic Settings │ JSON Files (Schema/Prompts)      │
+│    prompts.json │ security_rules.json │ database_schema  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**v5.0架构优势**:
-- 移除ReAct循环，避免无限循环问题
-- 移除ToolMessage大JSON，避免LLM被"训练"返回超大JSON
-- 简化响应解析，直接提取纯SQL
-- 减少LLM调用次数，提高响应速度
+**v6.0架构优势**:
+- 遵循LangChain v1.0规范，使用`bind_tools` API
+- 零硬编码：所有提示词从`prompts.json`加载
+- LLM完全自主：决定调用哪些工具、调用顺序
+- 支持复杂工作流：如"更新并返回结果"自动完成
 
 ## 📋 目录结构
 
@@ -47,12 +50,12 @@ db-ai-server/
 ├── README.md                          # 项目说明
 ├── requirements.txt                   # Python依赖
 ├── setup.py                          # 安装脚本
-├── mcp_server.py                    # MCP服务器入口 (v5.0)
+├── mcp_server.py                    # MCP服务器入口 (v6.0)
 ├── http_server.py                    # HTTP桥接服务器
 ├── config/                           # 配置目录
 │   ├── server_config.json           # 服务器配置
 │   ├── database_schema.json         # 数据库Schema配置
-│   ├── prompts.json                 # 提示词模板
+│   ├── prompts.json                 # 提示词模板（v6.0：Agent提示词）
 │   ├── security_rules.json          # 安全规则配置
 │   └── cloud_platforms.json         # 云端平台配置
 ├── src/                          # 源代码 (LangChain v1.0标准)
@@ -60,29 +63,32 @@ db-ai-server/
     │   ├── config/settings.py      # Pydantic配置
     │   ├── exceptions.py            # 异常体系
     │   └── types.py                # 类型定义
-    ├── llm/                        # LLM层 (init_chat_model标准)
-    │   ├── adapter.py               # ChatModel适配器(fallback)
-    │   └── factory.py               # LLM工厂(init_chat_model)
+    ├── llm/                        # LLM层
+    │   ├── adapter.py               # ChatModel适配器
+    │   └── factory.py               # LLM工厂
     ├── database/                    # 数据库层
     │   ├── connection.py            # 连接管理
     │   ├── schema.py                # Schema管理
-    │   ├── prompts.py               # 提示词管理
+    │   ├── prompts.py               # 提示词管理（从JSON加载）
     │   └── llm_client.py            # AI客户端工厂
-    ├── tools/                       # 工具层 (@tool装饰器标准)
+    ├── tools/                       # 工具层 (@tool装饰器)
     │   └── db_tools.py             # 数据库工具
     ├── agents/                      # Agent层
-    │   └── sql_agent.py             # SQL生成Agent
+    │   └── react_agent.py           # ReAct Agent（v6.0）
     └── security/                    # 安全层
         └── validator.py             # SQL验证器
 ```
 
 ## 核心原则
 
-1. **禁止硬编码**: 数据库Schema、提示词、规则全部从配置文件读取
-2. **简单优先**: 避免过度设计，直接解决问题
+1. **零硬编码**: 
+   - 所有提示词从`prompts.json`加载
+   - 所有业务逻辑由LLM决策，代码不做判断
+   - 数据库Schema从配置文件读取
+2. **LLM自主决策**: 工具调用顺序由LLM决定，代码只执行不决策
 3. **配置驱动**: 所有设置通过JSON配置文件管理
 4. **模块化设计**: 清晰的层级划分，高内聚低耦合
-5. **纯SQL返回**: LLM直接返回可执行SQL，不返回复杂JSON
+5. **LangChain v1.0**: 使用`bind_tools`标准API
 
 ## 🚀 快速开始
 
@@ -352,7 +358,8 @@ SQL安全验证规则
 
 > **v5.0变更**:
 > - 移除了 `execute_intelligently` 工具
-> - `generate_sql` 直接返回纯SQL，不再通过复杂的Agent循环
+> - 采用 **ReAct Agent** 实现工具链调用，支持复杂操作如"更新并返回结果"
+> - LLM自主决定工具调用顺序（generate_sql → execute_sql → generate_sql → execute_sql）
 > - 工具定义采用 **LangChain官方标准** (`@tool`装饰器 + Pydantic模型)
 > - LLM初始化采用 **init_chat_model** 标准API
 

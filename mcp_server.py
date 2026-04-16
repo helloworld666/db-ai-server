@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-DB-AI-Server MCP Server v5.0
-基于LangChain标准API的AI数据库SQL生成服务器
+DB-AI-Server MCP Server v6.0
+基于LangChain v1.0规范的AI数据库SQL生成服务器
 
 核心原则：
 1. 所有配置从JSON文件读取，禁止硬编码
 2. 所有提示词从配置文件读取，禁止硬编码
 3. 工具调用完全由LLM自主决定
 4. 数据库Schema从配置文件动态加载
-5. 使用LangChain标准API (init_chat_model, @tool装饰器)
+5. 使用LangChain v1.0标准API
 """
 
 import asyncio
@@ -16,7 +16,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -31,8 +31,8 @@ from src.database.connection import DatabaseConnection
 from src.database.schema import SchemaManager
 from src.database.prompts import PromptManager
 from src.security.validator import SQLValidator
-from src.agents.sql_agent import create_sql_agent
-from src.tools.db_tools import create_database_tools, _apply_display_mapping
+from src.agents.react_agent import create_react_agent
+from src.tools.db_tools import create_database_tools
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,101 @@ prompt_manager: Optional[PromptManager] = None
 sql_validator: Optional[SQLValidator] = None
 db_connection: Optional[DatabaseConnection] = None
 db_agent: Optional[Any] = None
+sql_generation_agent: Optional[Any] = None
+
+
+def _extract_sql_list_from_result(text: str) -> List[Dict[str, str]]:
+    """从Agent返回的文本中提取SQL列表
+    
+    优先解析Agent返回的JSON数组格式：[{"type": "select", "sql": "..."}, ...]
+    如果解析失败，尝试从Markdown代码块或文本中提取SQL
+    """
+    import re
+    sql_list = []
+    
+    # 尝试1：直接解析JSON数组格式（Agent按提示词返回的格式）
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            # Agent返回了JSON数组
+            for item in data:
+                if isinstance(item, dict) and "sql" in item:
+                    sql = item["sql"]
+                    # 优先使用Agent返回的type，否则自动检测
+                    sql_type = item.get("type") or _detect_sql_type(sql)
+                    if sql:
+                        sql_list.append({"type": sql_type, "sql": sql})
+            if sql_list:
+                return sql_list
+        elif isinstance(data, dict) and "sql" in data:
+            # 单个对象格式 {"sql": "...", "type": "..."}
+            sql = data["sql"]
+            sql_type = data.get("type") or _detect_sql_type(sql)
+            if sql:
+                return [{"type": sql_type, "sql": sql}]
+    except json.JSONDecodeError:
+        pass
+    
+    # 尝试2：从Markdown代码块中提取JSON
+    json_block_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+    json_matches = re.findall(json_block_pattern, text, re.DOTALL | re.IGNORECASE)
+    for json_str in json_matches:
+        try:
+            data = json.loads(json_str.strip())
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and "sql" in item:
+                        sql = item["sql"]
+                        sql_type = item.get("type") or _detect_sql_type(sql)
+                        if sql:
+                            sql_list.append({"type": sql_type, "sql": sql})
+                if sql_list:
+                    return sql_list
+            elif isinstance(data, dict) and "sql" in data:
+                sql = data["sql"]
+                sql_type = data.get("type") or _detect_sql_type(sql)
+                if sql:
+                    return [{"type": sql_type, "sql": sql}]
+        except json.JSONDecodeError:
+            continue
+    
+    # 尝试3：从Markdown SQL代码块中提取SQL
+    sql_block_pattern = r'```(?:sql)?\s*\n?(.*?)\n?```'
+    sql_matches = re.findall(sql_block_pattern, text, re.DOTALL | re.IGNORECASE)
+    for sql in sql_matches:
+        sql = sql.strip()
+        if sql:
+            sql_type = _detect_sql_type(sql)
+            sql_list.append({"type": sql_type, "sql": sql})
+    
+    if sql_list:
+        return sql_list
+    
+    # 尝试4：从文本中提取SQL语句（提取以关键字开头的语句块）
+    # 注意：使用通用模式匹配，不预设任何SQL关键字
+    sql_pattern = r'([A-Za-z_]+)\s+.+?(?:;|$)'
+    matches = re.findall(sql_pattern, text, re.IGNORECASE | re.DOTALL)
+    for match in matches:
+        sql = match.strip()
+        if sql:
+            sql_type = _detect_sql_type(sql)
+            sql_list.append({"type": sql_type, "sql": sql})
+    
+    return sql_list
+
+
+def _detect_sql_type(sql: str) -> str:
+    """检测SQL语句类型（后备方案，当Agent未返回type时使用）
+    
+    注意：此函数仅提取SQL的第一个关键字作为type，不做任何预设判断。
+    所有类型判断应由LLM在Agent中完成。
+    """
+    import re
+    # 提取SQL的第一个关键字（如 SELECT, INSERT, UPDATE, CALL, WITH 等）
+    match = re.match(r'^\s*(\w+)', sql.strip())
+    if match:
+        return match.group(1).lower()
+    return 'unknown'
 
 
 def setup_logging():
@@ -50,7 +145,6 @@ def setup_logging():
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
 
-    # 配置根日志记录器
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -60,7 +154,6 @@ def setup_logging():
         ]
     )
 
-    # 确保关键模块的日志级别
     logging.getLogger("src.llm").setLevel(logging.DEBUG)
     logging.getLogger("src.agents").setLevel(logging.DEBUG)
     logging.getLogger("src.database").setLevel(logging.DEBUG)
@@ -68,10 +161,10 @@ def setup_logging():
 
 async def initialize():
     """初始化组件"""
-    global schema_manager, prompt_manager, sql_validator, db_connection, db_agent
+    global schema_manager, prompt_manager, sql_validator, db_connection, db_agent, sql_generation_agent
 
     setup_logging()
-    logger.info("正在初始化MCP服务器 v5.0...")
+    logger.info("正在初始化MCP服务器 v6.0...")
 
     # 加载设置
     settings = get_settings()
@@ -95,7 +188,7 @@ async def initialize():
     prompt_manager = PromptManager(config_path)
     sql_validator = SQLValidator(config_path)
 
-    # 创建LLM（使用LangChain标准API）
+    # 创建LLM
     llm_config = {
         "provider": settings.llm.provider,
         "model": settings.llm.model,
@@ -104,29 +197,37 @@ async def initialize():
         "temperature": settings.llm.temperature,
         "max_tokens": settings.llm.max_tokens,
     }
-
     llm = create_llm(llm_config)
 
-    # 创建工具（由LLM自主决定调用）
+    # 创建工具
     tools = create_database_tools(
         db_connection=db_connection,
         schema_manager=schema_manager,
-        prompt_manager=prompt_manager,
-        sql_validator=sql_validator,
-        llm_client=None  # 工具内部使用prompt_manager和schema_manager
+        sql_validator=sql_validator
     )
 
-    # 创建Agent（使用LangChain标准方式）
-    db_agent = create_sql_agent(
+    # 创建Agent（使用新的ReAct Agent）
+    system_prompt = prompt_manager.get_agent_system_prompt()
+    max_iterations = prompt_manager.get_agent_max_iterations()
+    
+    db_agent = create_react_agent(
         llm=llm,
-        schema_manager=schema_manager,
-        prompt_manager=prompt_manager,
-        sql_validator=sql_validator,
-        tools=tools
+        tools=tools,
+        system_prompt=system_prompt,
+        max_iterations=max_iterations
+    )
+
+    # 创建SQL生成专用Agent（只生成SQL，不执行）
+    sql_gen_prompt = prompt_manager.get_sql_generation_system_prompt()
+    sql_generation_agent = create_react_agent(
+        llm=llm,
+        tools=tools,
+        system_prompt=sql_gen_prompt,
+        max_iterations=max_iterations
     )
 
     logger.info(f"MCP服务器初始化完成")
-    logger.info(f"  - 工具数量: {len(tools)}")
+    logger.info(f"  - 工具: {[t.name for t in tools]}")
     logger.info(f"  - LLM: {settings.llm.provider}/{settings.llm.model}")
     logger.info(f"  - 数据库: {settings.database.connection_string and '已配置' or '未配置'}")
 
@@ -153,7 +254,7 @@ def register_tools():
             ),
             Tool(
                 name="generate_sql",
-                description="根据自然语言描述生成SQL语句（SELECT/UPDATE/INSERT/DELETE）",
+                description="根据自然语言描述生成并执行SQL语句。支持查询和修改操作。",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -174,20 +275,6 @@ def register_tools():
                         "sql": {
                             "type": "string",
                             "description": "要验证的SQL语句"
-                        }
-                    },
-                    "required": ["sql"]
-                }
-            ),
-            Tool(
-                name="estimate_affected_rows",
-                description="预估SQL语句将影响的行数",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "sql": {
-                            "type": "string",
-                            "description": "SQL语句"
                         }
                     },
                     "required": ["sql"]
@@ -220,7 +307,7 @@ def register_tools():
 
     @mcp_server.call_tool()
     async def call_tool(name: str, arguments: Dict[str, Any]) -> list:
-        """调用工具 - 工具调用由LLM决定，这里只提供工具执行"""
+        """调用工具"""
         logger.info(f"收到工具调用请求: {name}, 参数: {arguments}")
         try:
             if name == "get_database_schema":
@@ -245,23 +332,38 @@ def register_tools():
                         "error": "query参数不能为空"
                     }, ensure_ascii=False))]
 
-                # 使用Agent处理（LLM自主决定内部逻辑）
+                # 使用完整的ReAct Agent（自动规划执行步骤）
                 result = await db_agent.ainvoke(query=query)
-                result_json = json.dumps(result, ensure_ascii=False, indent=2)
-                logger.info(f"generate_sql返回结果: {result_json[:200]}")
-                return [TextContent(type="text", text=result_json)]
+                
+                # 提取SQL列表并返回
+                if result.get("success"):
+                    agent_result = result.get("result", "")
+                    logger.info(f"Agent返回结果: {repr(agent_result)}")
+                    
+                    sql_list = _extract_sql_list_from_result(agent_result)
+                    logger.info(f"提取到SQL列表: {sql_list}")
+                    
+                    if sql_list:
+                        return [TextContent(type="text", text=json.dumps({
+                            "success": True,
+                            "sql_list": sql_list
+                        }, ensure_ascii=False))]
+                    else:
+                        return [TextContent(type="text", text=json.dumps({
+                            "success": False,
+                            "error": "未能从响应中提取SQL语句",
+                            "agent_response": agent_result[:500]
+                        }, ensure_ascii=False))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": result.get("error", "生成SQL失败")
+                    }, ensure_ascii=False))]
 
             elif name == "validate_sql":
                 sql = arguments.get("sql", "")
                 result = sql_validator.validate(sql)
                 return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
-
-            elif name == "estimate_affected_rows":
-                sql = arguments.get("sql", "")
-                estimated_rows = schema_manager.estimate_affected_rows(sql)
-                return [TextContent(type="text", text=json.dumps({
-                    "estimated_rows": estimated_rows
-                }, ensure_ascii=False))]
 
             elif name == "execute_sql":
                 if not db_connection:
@@ -280,8 +382,6 @@ def register_tools():
                     }, ensure_ascii=False))]
 
                 result = db_connection.execute_sql(sql, None)
-                # 应用 display_mapping 转换
-                result = _apply_display_mapping(result, sql, schema_manager)
                 return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
             elif name == "get_server_status":
@@ -289,8 +389,8 @@ def register_tools():
                 status = {
                     "server": {
                         "name": "db-ai-server",
-                        "version": "5.0.0",
-                        "architecture": "langchain_standard"
+                        "version": "6.0.0",
+                        "architecture": "langchain_v1"
                     },
                     "llm": {
                         "provider": settings.llm.provider,
@@ -320,7 +420,7 @@ async def main():
     register_tools()
 
     logger.info("=" * 60)
-    logger.info("Starting DB-AI-Server MCP Server v5.0")
+    logger.info("Starting DB-AI-Server MCP Server v6.0")
     logger.info("=" * 60)
 
     async with stdio_server() as (read_stream, write_stream):
