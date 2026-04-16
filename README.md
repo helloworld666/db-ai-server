@@ -1,43 +1,44 @@
-# DB-AI-Server v2.0
+# DB-AI-Server v5.0
 
-**数据库AI服务器** - 基于LangChain + LangGraph的AI驱动SQL生成系统
+**数据库AI服务器** - 简化架构的AI驱动SQL生成系统
+
+> **v5.0重大更新**: 彻底重构架构，移除复杂的ReAct循环和工具调用机制，采用直接SQL生成模式，更稳定、更可靠。
 
 ## 🌟 核心特性
 
-- ✅ **LangChain最佳实践**: 工厂模式、工具注册中心、ReAct Agent
-- ✅ **LangGraph工作流**: 有状态、多步骤的数据库操作流程
-- ✅ **LCEL链式调用**: 声明式组合的SQL生成链
+- ✅ **简化架构**: 直接SQL生成，无复杂循环
+- ✅ **纯SQL返回**: LLM直接返回可执行SQL，非JSON
 - ✅ **配置驱动**: 所有配置从JSON文件读取，禁止硬编码
 - ✅ **提示词管理**: 所有提示词从配置文件加载
-- ✅ **LLM自主决策**: 工具调用完全由LLM决定，不硬编码
 - ✅ **完整SQL支持**: SELECT/UPDATE/INSERT/DELETE
 - ✅ **多引擎支持**: OpenAI/DeepSeek/通义千问/Ollama/LM Studio
 - ✅ **安全验证**: SQL注入检测、风险评估
 
-## 📋 架构设计
+## 📋 架构设计 (v5.0简化版)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    API Layer (HTTP/MCP)                 │
 ├─────────────────────────────────────────────────────────┤
-│                  Agent Layer (ReAct)                    │
-│    ┌─────────────────────────────────────────────────┐ │
-│    │  SQL Agent - LLM自主决定工具调用                  │ │
-│    └─────────────────────────────────────────────────┘ │
+│                  Agent Layer (简化)                      │
+│    ┌─────────────────────────────────────────────────┐  │
+│    │  SQL Agent - 直接生成SQL（无工具调用循环）         │  │
+│    │  流程: 获取Schema → 构建提示词 → LLM生成 → 提取SQL │  │
+│    └─────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────┤
-│                Workflow Layer (LangGraph)                │
-│    Intent → Schema → Generate → Validate → Execute      │
-├─────────────────────────────────────────────────────────┤
-│               Tool Layer (Registry)                     │
-│    DB Tools │ SQL Tools │ Meta Tools                  │
-├─────────────────────────────────────────────────────────┤
-│                  Service Layer                          │
-│    LLM Factory │ DB Connection │ Schema Manager        │
+│               Service Layer                             │
+│    LLM Factory │ DB Connection │ Schema Manager         │
 ├─────────────────────────────────────────────────────────┤
 │                    Config Layer                         │
-│    Pydantic Settings │ JSON Files (Schema/Prompts)     │
+│    Pydantic Settings │ JSON Files (Schema/Prompts)      │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**v5.0架构优势**:
+- 移除ReAct循环，避免无限循环问题
+- 移除ToolMessage大JSON，避免LLM被"训练"返回超大JSON
+- 简化响应解析，直接提取纯SQL
+- 减少LLM调用次数，提高响应速度
 
 ## 📋 目录结构
 
@@ -46,7 +47,7 @@ db-ai-server/
 ├── README.md                          # 项目说明
 ├── requirements.txt                   # Python依赖
 ├── setup.py                          # 安装脚本
-├── mcp_server.py                    # MCP服务器入口 (v2.0)
+├── mcp_server.py                    # MCP服务器入口 (v5.0)
 ├── http_server.py                    # HTTP桥接服务器
 ├── config/                           # 配置目录
 │   ├── server_config.json           # 服务器配置
@@ -54,39 +55,34 @@ db-ai-server/
 │   ├── prompts.json                 # 提示词模板
 │   ├── security_rules.json          # 安全规则配置
 │   └── cloud_platforms.json         # 云端平台配置
-├── src/                          # 源代码 (LangChain架构)
+├── src/                          # 源代码 (LangChain v1.0标准)
     ├── core/                       # 核心基础设施
     │   ├── config/settings.py      # Pydantic配置
     │   ├── exceptions.py            # 异常体系
     │   └── types.py                # 类型定义
-    ├── llm/                        # LLM层
-    │   ├── factory.py               # LLM工厂
-    │   ├── adapter.py               # ChatModel适配器
-    │   └── providers/               # 各平台Provider
+    ├── llm/                        # LLM层 (init_chat_model标准)
+    │   ├── adapter.py               # ChatModel适配器(fallback)
+    │   └── factory.py               # LLM工厂(init_chat_model)
     ├── database/                    # 数据库层
     │   ├── connection.py            # 连接管理
     │   ├── schema.py                # Schema管理
-    │   └── prompts.py               # 提示词管理
-    ├── tools/                       # 工具层
-    │   ├── registry.py              # 工具注册中心
+    │   ├── prompts.py               # 提示词管理
+    │   └── llm_client.py            # AI客户端工厂
+    ├── tools/                       # 工具层 (@tool装饰器标准)
     │   └── db_tools.py             # 数据库工具
     ├── agents/                      # Agent层
     │   └── sql_agent.py             # SQL生成Agent
-    ├── workflows/                   # Workflow层
-    │   └── sql_workflow.py          # SQL工作流
-    ├── chains/                      # Chain层
-    │   └── sql_chains.py            # LCEL链
-    └── api/                         # API层
-        ├── mcp_server.py            # MCP服务
-        └── http_server.py           # HTTP服务
+    └── security/                    # 安全层
+        └── validator.py             # SQL验证器
 ```
 
 ## 核心原则
 
 1. **禁止硬编码**: 数据库Schema、提示词、规则全部从配置文件读取
-2. **LLM自主决策**: 工具调用完全由LLM根据上下文决定
+2. **简单优先**: 避免过度设计，直接解决问题
 3. **配置驱动**: 所有设置通过JSON配置文件管理
 4. **模块化设计**: 清晰的层级划分，高内聚低耦合
+5. **纯SQL返回**: LLM直接返回可执行SQL，不返回复杂JSON
 
 ## 🚀 快速开始
 
@@ -209,6 +205,8 @@ ollama pull qwen2.5-coder-3b-instruct
 | `ollama` | Ollama 本地 | 命令行工具 |
 
 修改后重启 db-ai-server 即可。
+
+> **💡 重要优势**: db-ai-server v5.0 采用简化架构，LLM直接返回纯SQL语句。无论您切换到OpenAI、Qwen、LM Studio还是Ollama，都能稳定工作，避免"换个模型就出错"的问题。
 
 #### 推理引擎对比
 
@@ -341,26 +339,22 @@ HTTP服务器将在 `http://0.0.0.0:8080` 启动，提供RESTful API接口。
 ### security_rules.json
 SQL安全验证规则
 
-## 🔧 MCP工具
+## 🔧 MCP工具 (v5.0)
 
 ### 可用工具列表
 
 1. **get_database_schema** - 获取数据库Schema
-2. **generate_sql** - 根据自然语言生成SELECT/UPDATE/INSERT/DELETE SQL
+2. **generate_sql** - 根据自然语言生成SQL（直接返回纯SQL）
 3. **validate_sql** - 验证SQL安全性
-4. **estimate_rows** - 预估影响行数
-5. **execute_sql** - 执行SQL并返回结果（可直接替换DAO层）
-6. **execute_intelligently** - LangChain Agent 智能执行（自动规划多步操作）
-7. **get_status** - 获取服务器状态
+4. **estimate_affected_rows** - 预估影响行数
+5. **execute_sql** - 执行SQL并返回结果
+6. **get_server_status** - 获取服务器状态
 
-### LangChain Agent
-
-`execute_intelligently` 是基于 LangChain + LangGraph 的智能代理工具：
-
-- **自动规划**: AI自主分析用户意图，自动规划完整操作流程
-- **智能验证**: 数据变更后自动执行验证查询
-- **中间步骤**: 返回详细的推理和执行过程
-- **记忆功能**: 支持对话历史，保持上下文连贯性
+> **v5.0变更**:
+> - 移除了 `execute_intelligently` 工具
+> - `generate_sql` 直接返回纯SQL，不再通过复杂的Agent循环
+> - 工具定义采用 **LangChain官方标准** (`@tool`装饰器 + Pydantic模型)
+> - LLM初始化采用 **init_chat_model** 标准API
 
 ### HTTP API接口
 
@@ -380,20 +374,17 @@ Content-Type: application/json
 **响应：**
 ```json
 {
-  "sql": "SELECT * FROM sys_user",
-  "sql_type": "SELECT",
-  "affected_tables": ["sys_user"],
-  "estimated_rows": -1,
-  "risk_level": "low",
-  "explanation": "查询系统中所有用户的基本信息",
-  "require_confirmation": false,
-  "warnings": ["全表查询可能影响性能"],
-  "suggestions": ["建议添加分页限制"],
-  "validation": {
-    "is_valid": true,
-    "errors": [],
-    "warnings": []
-  }
+  "success": true,
+  "sql": "SELECT * FROM sys_user"
+}
+```
+
+**失败响应：**
+```json
+{
+  "success": false,
+  "error": "未能生成SQL语句",
+  "raw_response": "..."
 }
 ```
 
@@ -501,19 +492,18 @@ public class DbAiService(HttpClient httpClient, ILogger<DbAiService> logger)
     }
 
     /// <summary>
-    /// SQL生成响应
+    /// SQL生成响应 (v5.0简化版)
     /// </summary>
     public class GenerateSqlResponse
     {
+        [JsonPropertyName("success")]
+        public bool Success { get; set; }
+
+        [JsonPropertyName("sql")]
         public string Sql { get; set; } = string.Empty;
-        public string SqlType { get; set; } = string.Empty;
-        public List<string> AffectedTables { get; set; } = new();
-        public int EstimatedRows { get; set; }
-        public string RiskLevel { get; set; } = string.Empty;
-        public string Explanation { get; set; } = string.Empty;
-        public bool RequireConfirmation { get; set; }
-        public List<string> Suggestions { get; set; } = new();
-        public List<string> Warnings { get; set; } = new();
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
     }
 
     /// <summary>

@@ -39,10 +39,10 @@ class SQLValidator:
             "dangerous_keywords": ["DROP", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE", "SHOW", "DESCRIBE"],
             "allowed_sql_types": ["SELECT", "UPDATE", "INSERT", "DELETE"],
             "forbidden_patterns": [
-                {"pattern": ";\\s*\\w+", "description": "分号后紧跟关键字", "severity": "critical"},
-                {"pattern": "--.*$", "description": "SQL注释", "severity": "high"},
-                {"pattern": "union\\s+select", "description": "UNION注入", "severity": "critical"},
-                {"pattern": "\\bor\\s+\\d+\\s*=\\s*\\d+", "description": "OR注入", "severity": "high"},
+                {"pattern": ";\\s*\\w+", "description": "Keyword after semicolon", "severity": "critical"},
+                {"pattern": "--.*$", "description": "SQL comment", "severity": "high"},
+                {"pattern": "union\\s+select", "description": "UNION injection", "severity": "critical"},
+                {"pattern": "\\bor\\s+\\d+\\s*=\\s*\\d+", "description": "OR injection", "severity": "high"},
             ]
         }
 

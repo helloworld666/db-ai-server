@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-DB-AI-Server MCP Server v2.0
-基于LangChain + LangGraph的AI数据库SQL生成服务器
+DB-AI-Server MCP Server v5.0
+基于LangChain标准API的AI数据库SQL生成服务器
 
 核心原则：
 1. 所有配置从JSON文件读取，禁止硬编码
 2. 所有提示词从配置文件读取，禁止硬编码
 3. 工具调用完全由LLM自主决定
 4. 数据库Schema从配置文件动态加载
+5. 使用LangChain标准API (init_chat_model, @tool装饰器)
 """
 
 import asyncio
@@ -25,13 +26,12 @@ from mcp.types import Tool, ListToolsResult, TextContent
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.core.config.settings import get_settings
-from src.llm.factory import LLMFactory
+from src.llm.factory import create_llm
 from src.database.connection import DatabaseConnection
 from src.database.schema import SchemaManager
 from src.database.prompts import PromptManager
-from src.database.llm_client import get_ai_client
 from src.security.validator import SQLValidator
-from src.agents.sql_agent import SQLAgent
+from src.agents.sql_agent import create_sql_agent
 from src.tools.db_tools import create_database_tools, _apply_display_mapping
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,7 @@ schema_manager: Optional[SchemaManager] = None
 prompt_manager: Optional[PromptManager] = None
 sql_validator: Optional[SQLValidator] = None
 db_connection: Optional[DatabaseConnection] = None
-db_agent: Optional[SQLAgent] = None
-ai_client: Optional[Any] = None
+db_agent: Optional[Any] = None
 
 
 def setup_logging():
@@ -51,6 +50,7 @@ def setup_logging():
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
 
+    # 配置根日志记录器
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -60,13 +60,18 @@ def setup_logging():
         ]
     )
 
+    # 确保关键模块的日志级别
+    logging.getLogger("src.llm").setLevel(logging.DEBUG)
+    logging.getLogger("src.agents").setLevel(logging.DEBUG)
+    logging.getLogger("src.database").setLevel(logging.DEBUG)
+
 
 async def initialize():
     """初始化组件"""
-    global schema_manager, prompt_manager, sql_validator, db_connection, db_agent, ai_client
+    global schema_manager, prompt_manager, sql_validator, db_connection, db_agent
 
     setup_logging()
-    logger.info("正在初始化MCP服务器 v2.0...")
+    logger.info("正在初始化MCP服务器 v5.0...")
 
     # 加载设置
     settings = get_settings()
@@ -90,10 +95,7 @@ async def initialize():
     prompt_manager = PromptManager(config_path)
     sql_validator = SQLValidator(config_path)
 
-    # 获取AI客户端（复用现有客户端实现）
-    ai_client = get_ai_client(settings)
-
-    # 创建LLM（LangChain兼容）
+    # 创建LLM（使用LangChain标准API）
     llm_config = {
         "provider": settings.llm.provider,
         "model": settings.llm.model,
@@ -103,7 +105,7 @@ async def initialize():
         "max_tokens": settings.llm.max_tokens,
     }
 
-    llm = LLMFactory.create(llm_config, existing_client=ai_client)
+    llm = create_llm(llm_config)
 
     # 创建工具（由LLM自主决定调用）
     tools = create_database_tools(
@@ -111,16 +113,16 @@ async def initialize():
         schema_manager=schema_manager,
         prompt_manager=prompt_manager,
         sql_validator=sql_validator,
-        llm_client=ai_client
+        llm_client=None  # 工具内部使用prompt_manager和schema_manager
     )
 
-    # 创建Agent
-    db_agent = SQLAgent(
+    # 创建Agent（使用LangChain标准方式）
+    db_agent = create_sql_agent(
         llm=llm,
-        tools=tools,
         schema_manager=schema_manager,
         prompt_manager=prompt_manager,
-        sql_validator=sql_validator
+        sql_validator=sql_validator,
+        tools=tools
     )
 
     logger.info(f"MCP服务器初始化完成")
@@ -218,7 +220,8 @@ def register_tools():
 
     @mcp_server.call_tool()
     async def call_tool(name: str, arguments: Dict[str, Any]) -> list:
-        """调用工具"""
+        """调用工具 - 工具调用由LLM决定，这里只提供工具执行"""
+        logger.info(f"收到工具调用请求: {name}, 参数: {arguments}")
         try:
             if name == "get_database_schema":
                 table_name = arguments.get("table_name")
@@ -242,9 +245,11 @@ def register_tools():
                         "error": "query参数不能为空"
                     }, ensure_ascii=False))]
 
-                # 使用Agent处理（LLM自主决定工具调用）
+                # 使用Agent处理（LLM自主决定内部逻辑）
                 result = await db_agent.ainvoke(query=query)
-                return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+                result_json = json.dumps(result, ensure_ascii=False, indent=2)
+                logger.info(f"generate_sql返回结果: {result_json[:200]}")
+                return [TextContent(type="text", text=result_json)]
 
             elif name == "validate_sql":
                 sql = arguments.get("sql", "")
@@ -284,8 +289,8 @@ def register_tools():
                 status = {
                     "server": {
                         "name": "db-ai-server",
-                        "version": "2.0.0",
-                        "architecture": "langchain_v2"
+                        "version": "5.0.0",
+                        "architecture": "langchain_standard"
                     },
                     "llm": {
                         "provider": settings.llm.provider,
@@ -294,8 +299,7 @@ def register_tools():
                     "database": {
                         "connected": db_connection is not None,
                         "tables_count": len(schema_manager.get_all_table_names()) if schema_manager else 0
-                    },
-                    "agent": db_agent.get_status() if db_agent else None
+                    }
                 }
                 return [TextContent(type="text", text=json.dumps(status, ensure_ascii=False, indent=2))]
 
@@ -316,7 +320,7 @@ async def main():
     register_tools()
 
     logger.info("=" * 60)
-    logger.info("Starting DB-AI-Server MCP Server v2.0")
+    logger.info("Starting DB-AI-Server MCP Server v5.0")
     logger.info("=" * 60)
 
     async with stdio_server() as (read_stream, write_stream):

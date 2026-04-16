@@ -83,8 +83,27 @@ class PromptManager:
         self._load_prompts()
 
     def get_system_prompt(self) -> str:
-        """获取系统提示词"""
-        return self._prompts_cache.get('system_prompt', '')
+        """获取系统提示词（包含示例）"""
+        system_prompt = self._prompts_cache.get('system_prompt', '')
+        
+        # 添加示例部分
+        examples = self._prompts_cache.get('examples', [])
+        if examples:
+            example_text = "\n\n【Usage Examples】\n"
+            for i, example in enumerate(examples, 1):
+                example_text += f"\n{i}. User: {example.get('user', '')}\n"
+                
+                # assistant字段现在是JSON字符串
+                assistant_response = example.get('assistant', '')
+                if assistant_response:
+                    example_text += f"   Assistant Response: {assistant_response}\n"
+                
+                if example.get('description'):
+                    example_text += f"   （描述: {example['description']}）\n"
+        
+            system_prompt += example_text
+        
+        return system_prompt
 
     def get_instructions(self) -> Dict[str, Any]:
         """获取指令配置"""
@@ -194,10 +213,10 @@ class PromptManager:
         output_format_title = self.get_section_title("output_format", "输出格式")
         prompt_parts.append(f"\n{output_format_title}:")
         template_fields = self.get_output_template()
-        prompt_parts.append(f"返回JSON，包含以下字段: {', '.join(template_fields.keys())}")
+        prompt_parts.append(f"Return JSON containing the following fields: {', '.join(template_fields.keys())}")
 
         # 用户查询
-        user_query_title = self.get_section_title("user_query", "用户查询")
+        user_query_title = self.get_section_title("user_query", "User Query")
         prompt_parts.append(f"\n{user_query_title}: {query}")
 
         return "\n".join(prompt_parts)
