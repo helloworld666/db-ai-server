@@ -34,6 +34,7 @@ def get_model_identifier(provider: str, model: str) -> str:
         "qwen": "openai",
         "ollama": "ollama",
         "lmstudio": "openai",
+        "openrouter": "openai",
     }
     langchain_provider = provider_map.get(provider.lower(), provider.lower())
     return f"{langchain_provider}:{model}"
@@ -116,4 +117,4 @@ def create_llm(
 
 def get_supported_providers() -> list:
     """获取支持的提供商列表"""
-    return ["openai", "anthropic", "deepseek", "qwen", "ollama", "lmstudio"]
+    return ["openai", "anthropic", "deepseek", "qwen", "ollama", "lmstudio", "openrouter"]

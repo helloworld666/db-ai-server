@@ -112,10 +112,16 @@ class SQLValidator:
             if "LIMIT" not in sql_upper:
                 result["warnings"].append("建议添加LIMIT限制以避免返回过多数据")
 
-        # 检查禁止的模式
+            # 检查禁止的模式（排除分号后跟SELECT的情况，这是正常的批量SQL）
         forbidden_patterns = self._rules_cache.get("forbidden_patterns", [])
         for pattern_info in forbidden_patterns:
             pattern = pattern_info.get("pattern", "")
+            if pattern == ";\\s*\\w+":
+                # 允许分号后跟SELECT（用于UPDATE后返回结果）
+                if re.search(pattern, sql_upper, re.IGNORECASE):
+                    sql_after_semicolon = re.split(r';', sql_upper, maxsplit=1)
+                    if len(sql_after_semicolon) > 1 and 'SELECT' in sql_after_semicolon[1]:
+                        continue  # 跳过验证，这是正常用法
             if re.search(pattern, sql_upper, re.IGNORECASE):
                 severity = pattern_info.get("severity", "high")
                 if severity == "critical":

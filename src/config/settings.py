@@ -30,6 +30,7 @@ class LLMConfig(BaseModel):
             "qwen": "openai",
             "ollama": "ollama",
             "lmstudio": "openai",
+            "openrouter": "openai",
         }
         langchain_provider = provider_map.get(self.provider.lower(), self.provider.lower())
         return f"{langchain_provider}:{self.model}"
