@@ -345,8 +345,6 @@ def register_tools():
 
                 # 调用db_agent，LLM会自主决定调用哪些工具
                 result = await db_agent.ainvoke(query=query)
-                logger.info(f"db_agent返回结果: {result}")
-
                 if result.get("success"):
                     # 从执行日志中提取最后一个 execute_sql 的结果
                     execution_log = result.get("execution_log", [])

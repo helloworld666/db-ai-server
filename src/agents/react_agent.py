@@ -89,16 +89,15 @@ class ReActAgent:
                                     "result": result
                                 })
 
-                                # 【关键优化】如果 execute_sql 返回了成功结果，直接返回
-                                # 不需要让LLM继续生成JSON格式化输出，浪费token
+                                # 如果 execute_sql 返回了成功结果，直接返回
                                 if tool_name == 'execute_sql':
                                     try:
                                         result_obj = json.loads(result) if isinstance(result, str) else result
                                         if isinstance(result_obj, dict) and result_obj.get('success') and result_obj.get('rows'):
-                                            logger.info(f"[Agent] execute_sql返回成功结果，共{len(result_obj.get('rows', []))}行，直接返回")
+                                            logger.info(f"[Agent] execute_sql返回成功结果，共{len(result_obj.get('rows', []))}行")
                                             return {
                                                 "success": True,
-                                                "result": str(result),  # 返回execute_sql的原始JSON结果
+                                                "result": str(result),
                                                 "execution_log": execution_log,
                                                 "iterations": iteration,
                                                 "query": query

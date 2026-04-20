@@ -342,13 +342,12 @@ class DatabaseConnection:
                     col_name = col['name']
                     output_name = col.get('output_name', '')
                     desc = col.get('description', '')
-                    if col_name in columns:
-                        # 原始列名 -> output_name（优先）
-                        if output_name:
-                            english_to_output_name[col_name] = output_name
-                        # 原始列名 -> description（备用）
-                        if desc:
-                            english_to_chinese[col_name] = desc
+                    # columns 此时已经是中文名了，所以要检查中文名是否在 columns 中
+                    # 建立英文->中文的反向映射
+                    if output_name and output_name in columns:
+                        english_to_output_name[col_name] = output_name
+                    if desc and desc in columns:
+                        english_to_chinese[col_name] = desc
 
         logger.info(f"[DisplayMapping] 英文到output_name映射: {english_to_output_name}")
         logger.info(f"[DisplayMapping] 英文到description映射: {english_to_chinese}")
