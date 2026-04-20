@@ -51,21 +51,21 @@ class MCPServer:
         settings = get_settings()
         config_path = str(settings.config_dir)
 
-        # 创建数据库连接
+        # 创建管理器（先创建，以便用于显示映射）
+        self.schema_manager = SchemaManager(config_path)
+        self.prompt_manager = PromptManager(config_path)
+        self.sql_validator = SQLValidator(config_path)
+
+        # 创建数据库连接（传入schema_manager用于显示映射）
         db_config = settings.database.connection_string
         if db_config:
             try:
-                self.db_connection = DatabaseConnection(db_config)
+                self.db_connection = DatabaseConnection(db_config, self.schema_manager)
                 self.db_connection.test_connection()
                 logger.info("数据库连接成功")
             except Exception as e:
                 logger.warning(f"数据库连接失败: {e}")
                 self.db_connection = None
-
-        # 创建管理器
-        self.schema_manager = SchemaManager(config_path)
-        self.prompt_manager = PromptManager(config_path)
-        self.sql_validator = SQLValidator(config_path)
 
         # 创建LLM
         llm_config = {

@@ -2,13 +2,13 @@
 
 **数据库AI服务器** - 基于LangChain v1.0的AI驱动SQL生成系统
 
-> **v7.0重大更新**: 全面遵循LangChain v1.0规范，采用ReAct Agent实现工具链调用。
+> **v7.0重大更新**: 全面遵循LangChain v1.0规范，采用ReAct Agent实现工具链调用。LLM完全自主决定工具调用顺序。
 
 ## 核心特性
 
 - ✅ **LangChain v1.0**: 使用 `@tool` 装饰器和 Runnable 接口
 - ✅ **零硬编码**: 所有提示词、业务逻辑从配置文件加载
-- ✅ **LLM自主决策**: 工具调用顺序由LLM决定
+- ✅ **LLM自主决策**: 工具调用顺序由LLM决定（smart_execute）
 - ✅ **完整SQL支持**: SELECT/UPDATE/INSERT/DELETE
 - ✅ **多引擎支持**: OpenAI/DeepSeek/通义千问/Ollama/LM Studio
 - ✅ **安全验证**: SQL注入检测、风险评估
@@ -63,90 +63,180 @@ python http_server.py
 
 ## 执行流程
 
-### 通用处理流程
+### 智能执行流程（推荐）
 
-所有操作都遵循相同的基础流程：
-
-```
-用户输入 → MCP Server → ReAct Agent → 工具调用循环 → 返回结果
-```
-
-```python
-# 1. 构建消息
-messages = [
-    SystemMessage(content=system_prompt),  # 从 config/prompts.json 加载
-    HumanMessage(content=query)
-]
-
-# 2. LLM 推理并决定工具调用
-llm_with_tools = llm.bind_tools(tools)
-response = await llm_with_tools.ainvoke(messages)
-
-# 3. 执行工具调用循环
-while response.tool_calls:
-    for tool_call in response.tool_calls:
-        result = await tools_dict[tool_call.name].ainvoke(tool_call.args)
-        messages.append(ToolMessage(content=str(result), tool_call_id=tool_call.id))
-    response = await llm_with_tools.ainvoke(messages)
-
-# 4. 返回最终结果
-return response.content
-```
-
-### SELECT 查询操作
-
-**用户输入:** "查询所有用户"
-
-**工具链:** `get_database_schema → execute_sql(SELECT)`
+**推荐使用 `smart_execute`**，LLM完全自主决定工具调用链：
 
 ```
+用户查询 → /mcp/smart_execute → ReAct Agent → LLM自主决定工具 → 返回结果
+```
+
+#### smart_execute 完整流程
+
+```
+用户输入: "查询所有启用的货架"
+         ↓
 迭代 1: LLM 调用 get_database_schema() 获取表结构
          ↓
-迭代 2: LLM 调用 execute_sql("SELECT * FROM users")
+迭代 2: LLM 调用 generate_sql() 生成SQL
          ↓
-最终结果: {"success": true, "sql_list": ["SELECT * FROM users"]}
+迭代 3: LLM 调用 validate_sql() 验证安全性
+         ↓
+迭代 4: LLM 调用 execute_sql() 执行SQL
+         ↓
+最终结果: {"success": true, "columns": [...], "rows": [...], "affected_rows": N}
 ```
 
-### INSERT 插入操作
+> **关键区别**: LLM自主决定调用顺序和次数，无需客户端两阶段调用。
 
-**用户输入:** "添加新用户张三，年龄25岁"
+---
 
-**工具链:** `get_database_schema → execute_sql(INSERT)`
+### MCP 工具列表
 
-**插入并返回:**
+| 工具名 | 功能 | 使用场景 |
+|--------|------|----------|
+| `smart_execute` | 智能执行，LLM自主决定工具链 | **推荐** - 自然语言查询 |
+| `get_database_schema` | 获取数据库表结构 | 单独获取Schema |
+| `generate_sql` | 根据自然语言生成SQL | 只需生成SQL |
+| `execute_sql` | 执行SQL语句 | 已知SQL直接执行 |
+| `validate_sql` | 验证SQL安全性 | SQL安全检查 |
+| `get_server_status` | 获取服务器状态 | 服务健康检查 |
+
+---
+
+## HTTP API
+
+### 智能执行（推荐）
+
+```http
+POST /mcp/smart_execute
+Content-Type: application/json
+
+{"query": "查询所有启用的货架"}
 ```
-用户输入: "添加新用户李四，年龄30岁，并返回添加的数据"
-工具链: get_database_schema → execute_sql(INSERT) → execute_sql(SELECT) → 返回结果
+
+**响应:**
+```json
+{
+  "success": true,
+  "columns": ["货架ID", "货架名称", "是否启用"],
+  "rows": [
+    [1, "A区货架", "是"],
+    [2, "B区货架", "否"]
+  ]
+}
 ```
 
-### UPDATE 更新操作
+### 自然语言查询（等同于smart_execute）
 
-**用户输入:** "将ID为1的用户年龄改为30"
+```http
+POST /mcp/query
+Content-Type: application/json
 
-**工具链:** `get_database_schema → execute_sql(UPDATE)`
-
-**更新并返回:**
-```
-用户输入: "将ID为1的用户年龄改为30，并返回更新后的数据"
-工具链: get_database_schema → execute_sql(UPDATE) → execute_sql(SELECT) → 返回结果
+{"query": "查询所有用户"}
 ```
 
-### DELETE 删除操作
+---
 
-**用户输入:** "删除ID为5的用户"
+## C#客户端
 
-**工具链:** `get_database_schema → execute_sql(DELETE)`
+### 使用 smart_execute（推荐）
 
-**注意:** 无 WHERE 条件的 DELETE 会被拦截验证。
+```csharp
+// 注册服务
+services.AddHttpClient<DbAiService>();
 
-### 操作响应格式
+// 使用 - 单一调用，LLM自主决定工具链
+var result = await dbAiService.SmartExecuteAsync("查询所有启用的货架");
+if (result.Success)
+{
+    foreach (var row in result.Rows)
+    {
+        Console.WriteLine($"货架: {row["货架名称"]}, 状态: {row["是否启用"]}");
+    }
+}
+```
 
-| SQL 类型 | 操作描述 | 返回内容 |
-|----------|----------|----------|
-| SELECT | 查询数据 | `{"success": true, "data": [...]}` |
-| INSERT | 插入数据 | `{"success": true, "affected_rows": N}` |
-| UPDATE | 更新数据 | `{"success": true, "affected_rows": N}` |
-| DELETE | 删除数据 | `{"success": true, "affected_rows": N}` |
+### 服务端响应格式
+
+```json
+{
+  "success": true,
+  "columns": ["列1", "列2", ...],
+  "rows": [[值1, 值2, ...], ...],
+  "affected_rows": N
+}
+```
+
+---
+
+## 架构设计
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        HTTP Server                           │
+│                      (http_server.py)                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │ /mcp/query  │  │/smart_execute│  │ /mcp/invoke        │ │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                        MCP Server                           │
+│                      (mcp_server.py)                        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      ReAct Agent                           │
+│                 (src/agents/react_agent.py)                 │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ LLM自主决定工具调用链:                                │   │
+│  │ get_schema → generate_sql → validate_sql → execute  │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    Tool Registry                           │
+│                  (src/tools/registry.py)                    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│  │ get_schema  │  │ execute_sql │  │ validate_sql│       │
+│  └─────────────┘  └─────────────┘  └─────────────┘       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              ↓               ↓               ↓
+┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│   SchemaManager  │ │DatabaseConnection│ │  SQLValidator    │
+└──────────────────┘ └──────────────────┘ └──────────────────┘
+```
+
+---
+
+## 核心组件
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| HTTP Server | `http_server.py` | HTTP桥接，为客户端提供REST API |
+| MCP Server | `mcp_server.py` | MCP 协议处理，工具注册 |
+| ReAct Agent | `src/agents/react_agent.py` | LLM 工具调用循环 |
+| Tool Registry | `src/tools/registry.py` | LangChain v1.0 工具定义 |
+| Schema Manager | `src/schema/manager.py` | 数据库结构管理 |
+| SQL Validator | `src/security/validator.py` | SQL 安全验证 |
+| Prompt Manager | `src/prompts/manager.py` | 提示词管理 |
+| LLM Factory | `src/llm/factory.py` | LLM 实例创建 |
+
+---
+
+## 配置文件
+
+| 文件 | 用途 |
+|------|------|
+| `config/prompts.json` | 提示词和验证规则 |
+| `config/server_config.json` | 服务配置 |
+| `config/schema/*.json` | 数据库 Schema 定义 |
 
 ---
 
@@ -178,140 +268,6 @@ return response.content
 - **有 WHERE 条件**: 正常执行
 - **无 WHERE 条件**: 验证失败
 
-### 返回数据规则
-
-如果用户要求"返回结果"，UPDATE/INSERT 操作后 Agent 会自动追加 SELECT 查询。
-
----
-
-## 架构设计
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        MCP Server                           │
-│                      (mcp_server.py)                        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      ReAct Agent                           │
-│                 (src/agents/react_agent.py)                 │
-│  - 维护工具集合 │ 管理对话上下文 │ 执行工具调用循环          │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Tool Registry                           │
-│                  (src/tools/registry.py)                    │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
-│  │ get_schema  │  │ execute_sql │  │ validate_sql│       │
-│  └─────────────┘  └─────────────┘  └─────────────┘       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ↓               ↓               ↓
-┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│   SchemaManager  │ │DatabaseConnection│ │  SQLValidator    │
-└──────────────────┘ └──────────────────┘ └──────────────────┘
-```
-
----
-
-## 核心组件
-
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| MCP Server | `mcp_server.py` | MCP 协议处理，工具注册 |
-| ReAct Agent | `src/agents/react_agent.py` | LLM 工具调用循环 |
-| Tool Registry | `src/tools/registry.py` | LangChain v1.0 工具定义 |
-| Schema Manager | `src/schema/manager.py` | 数据库结构管理 |
-| SQL Validator | `src/security/validator.py` | SQL 安全验证 |
-| Prompt Manager | `src/prompts/manager.py` | 提示词管理 |
-| LLM Factory | `src/llm/factory.py` | LLM 实例创建 |
-
----
-
-## 配置文件
-
-| 文件 | 用途 |
-|------|------|
-| `config/prompts.json` | 提示词和验证规则 |
-| `config/settings.yaml` | 服务配置 |
-| `config/schema/*.json` | 数据库 Schema 定义 |
-
----
-
-## MCP 工具
-
-| 工具名 | 功能 |
-|--------|------|
-| `get_database_schema` | 获取数据库表结构 |
-| `generate_sql` | 根据自然语言生成SQL |
-| `execute_sql` | 执行 SQL 语句 |
-| `validate_sql` | 验证 SQL 安全性 |
-| `get_server_status` | 获取服务器状态 |
-
----
-
-## HTTP API
-
-### 生成SQL
-
-```http
-POST /mcp/generate_sql
-Content-Type: application/json
-
-{"query": "查询所有用户"}
-```
-
-**响应:**
-```json
-{
-  "success": true,
-  "sql_list": ["SELECT * FROM users"]
-}
-```
-
-### 执行SQL
-
-```http
-POST /mcp/execute_sql
-Content-Type: application/json
-
-{"sql": "SELECT * FROM users"}
-```
-
----
-
-## 错误处理
-
-| 错误类型 | 响应 |
-|----------|------|
-| 表不存在 | `{"success": false, "error": "表 'xxx' 不存在"}` |
-| SQL验证失败 | `{"success": false, "error": "SQL验证失败", "validation": {...}}` |
-| 迭代超限 | `{"success": false, "error": "达到最大迭代次数限制"}` |
-
----
-
-## 目录结构
-
-```
-db-ai-server/
-├── README.md                    # 项目说明
-├── requirements.txt             # Python依赖
-├── mcp_server.py               # MCP服务器入口 (v7.0)
-├── http_server.py              # HTTP桥接服务器
-├── config/                      # 配置目录
-│   ├── prompts.json            # 提示词模板
-│   └── schema/                 # 数据库Schema配置
-└── src/                        # 源代码
-    ├── agents/react_agent.py   # ReAct Agent
-    ├── tools/registry.py       # 工具注册表
-    ├── schema/manager.py       # Schema管理器
-    ├── security/validator.py   # SQL验证器
-    └── prompts/manager.py      # 提示词管理器
-```
-
 ---
 
 ## Python客户端
@@ -321,7 +277,7 @@ import asyncio
 import json
 from mcp import ClientSession, StdioServerParameters
 
-async def generate_sql(query: str):
+async def smart_execute(query: str):
     async with ClientSession() as session:
         await session.connect(StdioServerParameters(
             command="python",
@@ -329,34 +285,15 @@ async def generate_sql(query: str):
         ))
 
         result = await session.call_tool(
-            "generate_sql",
+            "smart_execute",
             {"query": query}
         )
 
         return json.loads(result.content[0].text)
 
 # 使用
-sql = await generate_sql("查询所有用户")
-print(sql)
-```
-
----
-
-## C#客户端
-
-```csharp
-// 注册服务
-services.AddHttpClient<DbAiService>();
-
-// 使用
-var result = await dbAiService.GenerateAndExecuteAsync("查询所有用户");
-if (result.Success)
-{
-    foreach (var row in result.Rows)
-    {
-        Console.WriteLine($"用户名: {row["name"]}");
-    }
-}
+result = await smart_execute("查询所有启用的货架")
+print(result)
 ```
 
 ---
@@ -375,11 +312,35 @@ if (result.Success)
 ## 代码规范
 
 ```bash
-# Windows 格式化
+# Windows格式化
 .\format.bat
 
 # 检查
 .\lint.bat
+```
+
+---
+
+## 目录结构
+
+```
+db-ai-server/
+├── README.md                    # 项目说明
+├── requirements.txt             # Python依赖
+├── mcp_server.py               # MCP服务器入口 (v7.0)
+├── http_server.py              # HTTP桥接服务器
+├── config/                      # 配置目录
+│   ├── prompts.json            # 提示词模板
+│   ├── server_config.json      # 服务配置
+│   └── schema/                 # 数据库Schema配置
+└── src/                        # 源代码
+    ├── agents/react_agent.py   # ReAct Agent
+    ├── tools/registry.py       # 工具注册表
+    ├── schema/manager.py       # Schema管理器
+    ├── security/validator.py   # SQL验证器
+    ├── database/connection.py  # 数据库连接
+    ├── llm/factory.py          # LLM工厂
+    └── prompts/manager.py      # 提示词管理器
 ```
 
 ---

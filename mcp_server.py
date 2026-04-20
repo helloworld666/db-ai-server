@@ -75,11 +75,16 @@ async def initialize():
     settings = get_settings()
     config_path = str(settings.config_dir)
 
-    # 创建数据库连接
+    # 创建管理器（先创建，以便用于显示映射）
+    schema_manager = SchemaManager(config_path)
+    prompt_manager = PromptManager(config_path)
+    sql_validator = SQLValidator(config_path)
+
+    # 创建数据库连接（传入schema_manager用于显示映射）
     db_config = settings.database.connection_string
     if db_config:
         try:
-            db_connection = DatabaseConnection(db_config)
+            db_connection = DatabaseConnection(db_config, schema_manager)
             db_connection.test_connection()
             logger.info("数据库连接成功")
         except Exception as e:
@@ -87,11 +92,6 @@ async def initialize():
             db_connection = None
     else:
         logger.info("未配置数据库连接，SQL执行功能将不可用")
-
-    # 创建管理器（从配置文件加载）
-    schema_manager = SchemaManager(config_path)
-    prompt_manager = PromptManager(config_path)
-    sql_validator = SQLValidator(config_path)
 
     # 创建LLM
     llm_config = {
@@ -212,6 +212,20 @@ def register_tools():
                     "type": "object",
                     "properties": {}
                 }
+            ),
+            Tool(
+                name="smart_execute",
+                description="智能执行自然语言查询。Agent会自动：1)查询数据库结构了解Schema，2)生成SQL语句，3)验证SQL安全性，4)执行SQL，5)返回执行结果。全程由LLM自主决定调用哪些工具。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "用户的自然语言查询，如'查询所有启用的货架'"
+                        }
+                    },
+                    "required": ["query"]
+                }
             )
         ]
         return ListToolsResult(tools=tools)
@@ -311,6 +325,64 @@ def register_tools():
                     }
                 }
                 return [TextContent(type="text", text=json.dumps(status, ensure_ascii=False, indent=2))]
+
+            elif name == "smart_execute":
+                """智能执行：LLM完全自主决定工具调用链"""
+                query = arguments.get("query", "")
+                if not query:
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": "query参数不能为空"
+                    }, ensure_ascii=False))]
+
+                if not db_agent:
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": "Agent未初始化"
+                    }, ensure_ascii=False))]
+
+                logger.info(f"smart_execute收到查询: {query}")
+
+                # 调用db_agent，LLM会自主决定调用哪些工具
+                result = await db_agent.ainvoke(query=query)
+                logger.info(f"db_agent返回结果: {result}")
+
+                if result.get("success"):
+                    # 从执行日志中提取最后一个 execute_sql 的结果
+                    execution_log = result.get("execution_log", [])
+                    sql_result = None
+                    for log_entry in reversed(execution_log):
+                        if log_entry.get("tool") == "execute_sql":
+                            try:
+                                tool_result = log_entry.get("result", "")
+                                if isinstance(tool_result, str):
+                                    sql_result = json.loads(tool_result)
+                                else:
+                                    sql_result = tool_result
+                                break
+                            except (json.JSONDecodeError, Exception) as e:
+                                logger.warning(f"解析SQL结果失败: {e}")
+                                sql_result = {"raw_result": str(tool_result)}
+                                break
+
+                    if sql_result:
+                        return [TextContent(type="text", text=json.dumps(sql_result, ensure_ascii=False, indent=2))]
+                    else:
+                        # 没有SQL执行结果，返回LLM的自然语言回复
+                        llm_response = result.get("result", "")
+                        logger.warning(f"[smart_execute] 未找到SQL执行结果，LLM回复: {llm_response}")
+                        return [TextContent(type="text", text=json.dumps({
+                            "success": True,
+                            "rows": [],
+                            "columns": [],
+                            "row_count": 0,
+                            "message": llm_response if llm_response else "查询完成，但没有返回数据"
+                        }, ensure_ascii=False))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": result.get("error", "执行失败")
+                    }, ensure_ascii=False))]
 
             else:
                 return [TextContent(type="text", text=f"未知工具: {name}")]

@@ -309,13 +309,38 @@ async def query(request: QueryRequest):
         if request.context:
             arguments["context"] = request.context
 
-        # 调用generate_sql工具，由Agent内部自主决定逻辑
-        result = await mcp_client.call_tool("generate_sql", arguments)
+        # 调用smart_execute工具，由Agent内部自主决定工具调用链
+        result = await mcp_client.call_tool("smart_execute", arguments)
         return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"查询失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/mcp/smart_execute")
+async def smart_execute(request: QueryRequest):
+    """
+    智能执行 - LLM完全自主决定工具调用链
+
+    请求格式:
+    {
+        "query": "查询所有启用的货架"
+    }
+    """
+    try:
+        if not request.query:
+            raise HTTPException(status_code=400, detail="缺少query参数")
+
+        logger.info(f"Smart Execute请求: {request.query}")
+        result = await mcp_client.call_tool("smart_execute", {"query": request.query})
+        logger.info(f"Smart Execute结果: {str(result)[:500]}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"智能执行失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
