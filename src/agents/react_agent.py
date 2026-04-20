@@ -73,12 +73,13 @@ class ReActAgent:
                 response = await llm_with_tools.ainvoke(messages)
 
                 if hasattr(response, 'tool_calls') and response.tool_calls:
+                    logger.info(f"[Agent迭代{iteration}] LLM请求调用工具: {[tc.get('name') for tc in response.tool_calls]}")
                     for tool_call in response.tool_calls:
                         tool_name = tool_call.get('name')
                         tool_args = tool_call.get('args', {})
                         tool_id = tool_call.get('id', '')
 
-                        logger.info(f"工具调用: {tool_name}({tool_args})")
+                        logger.info(f"执行工具: {tool_name}({tool_args})")
 
                         if tool_name in self.tools_dict:
                             try:
@@ -93,8 +94,8 @@ class ReActAgent:
                                 if tool_name == 'execute_sql':
                                     try:
                                         result_obj = json.loads(result) if isinstance(result, str) else result
-                                        if isinstance(result_obj, dict) and result_obj.get('success') and result_obj.get('rows'):
-                                            logger.info(f"[Agent] execute_sql返回成功结果，共{len(result_obj.get('rows', []))}行")
+                                        if isinstance(result_obj, dict) and result_obj.get('success'):
+                                            logger.info(f"[Agent] execute_sql返回成功结果")
                                             return {
                                                 "success": True,
                                                 "result": str(result),

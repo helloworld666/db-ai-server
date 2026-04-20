@@ -165,12 +165,10 @@ class DatabaseConnection:
         Returns:
             (新列名列表, 新注释映射, 新数据行)
         """
-        logger.info(f"[中文列名] 原始列名: {columns}")
-        logger.info(f"[中文列名] 列注释: {column_comments}")
-
-        # 获取SQL中涉及的表名
+        # 获取SQL中涉及的所有表名
         table_names = self._extract_all_table_names(sql)
-        logger.info(f"[中文列名] 涉及的表名: {table_names}")
+        if not table_names:
+            return columns, column_comments, rows
 
         # 收集所有列的中文描述
         chinese_names = {}
@@ -180,19 +178,17 @@ class DatabaseConnection:
             chinese_desc = None
 
             # 1. 优先使用 output_name（专门的输出名称）
-            if self._schema_manager and table_names:
+            if self._schema_manager:
                 for table_name in table_names:
                     col_info = self._schema_manager.get_column_info(table_name, col)
                     if col_info:
                         # 优先用 output_name
                         if col_info.get('output_name'):
                             chinese_desc = col_info['output_name']
-                            logger.info(f"[中文列名] {table_name}.{col} 使用output_name: {chinese_desc}")
                             break
                         # 其次用 description
                         elif col_info.get('description'):
                             chinese_desc = col_info['description']
-                            logger.info(f"[中文列名] {table_name}.{col} 使用description: {chinese_desc}")
                             break
 
             # 2. 其次使用数据库的 COLUMN_COMMENT
@@ -205,7 +201,6 @@ class DatabaseConnection:
                 has_chinese = True
 
         if not has_chinese:
-            logger.info("[中文列名] 没有列有中文描述，保持原样")
             return columns, column_comments, rows
 
         # 用中文列名替换英文列名
@@ -230,7 +225,6 @@ class DatabaseConnection:
                     new_row[col] = row.get(col)
             new_rows.append(new_row)
 
-        logger.info(f"[中文列名] 转换后的列名: {new_columns}")
         return new_columns, new_column_comments, new_rows
 
     def execute_query(self, sql: str, params: Optional[tuple] = None) -> Dict[str, Any]:
@@ -271,10 +265,19 @@ class DatabaseConnection:
             }
 
         except Exception as e:
-            logger.error(f"执行查询失败: {e}")
+            error_msg = str(e)
+            # 提取关键错误信息便于调试
+            if "Unknown column" in error_msg:
+                logger.error(f"查询失败 - 未知字段: {error_msg}")
+            elif "Table" in error_msg and "doesn't exist" in error_msg:
+                logger.error(f"查询失败 - 表不存在: {error_msg}")
+            elif "syntax" in error_msg.lower():
+                logger.error(f"查询失败 - SQL语法错误: {error_msg}")
+            else:
+                logger.error(f"查询执行失败: {error_msg}")
             return {
                 'success': False,
-                'error': str(e),
+                'error': error_msg,
                 'rows': [],
                 'affected_rows': 0
             }
@@ -307,13 +310,8 @@ class DatabaseConnection:
         """
         # 获取SQL中涉及的所有表名
         table_names = self._extract_all_table_names(sql)
-        logger.info(f"[DisplayMapping] SQL: {sql}")
-        logger.info(f"[DisplayMapping] 提取的表名: {table_names}")
-        logger.info(f"[DisplayMapping] 原始列名: {columns}")
-        logger.info(f"[DisplayMapping] 列注释: {column_comments}")
 
         if not table_names:
-            logger.info("[DisplayMapping] 未提取到表名，跳过映射")
             return rows, columns, column_comments
 
         # 收集需要 display_mapping 的字段配置（用于值转换）
@@ -324,8 +322,6 @@ class DatabaseConnection:
             mappings = self._schema_manager.get_table_display_mappings(table_name)
             for col_name, mapping in mappings.items():
                 column_mappings[col_name] = mapping
-
-        logger.info(f"[DisplayMapping] display_mapping 配置: {column_mappings}")
 
         # 如果没有需要转换值的字段，直接返回
         if not column_mappings:
@@ -348,9 +344,6 @@ class DatabaseConnection:
                         english_to_output_name[col_name] = output_name
                     if desc and desc in columns:
                         english_to_chinese[col_name] = desc
-
-        logger.info(f"[DisplayMapping] 英文到output_name映射: {english_to_output_name}")
-        logger.info(f"[DisplayMapping] 英文到description映射: {english_to_chinese}")
 
         # 转换每行数据中的值（布尔值等）
         converted_rows = []
@@ -386,7 +379,6 @@ class DatabaseConnection:
                     value_str = str(value) if value is not None else ''
                     if value_str in display_map:
                         value = display_map[value_str]
-                        logger.info(f"[DisplayMapping] 列 {col}({original_col}) 值 {value_str} -> {value}")
 
                 converted_row[col] = value
             converted_rows.append(converted_row)
@@ -449,22 +441,37 @@ class DatabaseConnection:
         try:
             cursor = self.connection.cursor()
             affected_rows = cursor.execute(sql, params)
-            insert_id = cursor.lastrowid if 'insert' in sql.lower() else None
+            sql_upper = sql.upper().strip()
+            is_insert = sql_upper.startswith('INSERT')
+            insert_id = cursor.lastrowid if is_insert else None
             self.connection.commit()
 
             return {
                 'success': True,
                 'affected_rows': affected_rows,
-                'insert_id': insert_id
+                'insert_id': insert_id,
+                'row_count': affected_rows,
+                'sql_type': 'INSERT' if is_insert else ('UPDATE' if sql_upper.startswith('UPDATE') else 'DELETE')
             }
 
         except Exception as e:
             if self.connection:
                 self.connection.rollback()
-            logger.error(f"执行更新失败: {e}")
+            error_msg = str(e)
+            # 提取关键错误信息便于调试
+            if "Duplicate entry" in error_msg:
+                logger.error(f"更新失败 - 重复值: {error_msg}")
+            elif "foreign key constraint" in error_msg.lower():
+                logger.error(f"更新失败 - 外键约束: {error_msg}")
+            elif "Unknown column" in error_msg:
+                logger.error(f"更新失败 - 未知字段: {error_msg}")
+            elif "syntax" in error_msg.lower():
+                logger.error(f"更新失败 - SQL语法错误: {error_msg}")
+            else:
+                logger.error(f"数据库更新失败: {error_msg}")
             return {
                 'success': False,
-                'error': str(e),
+                'error': error_msg,
                 'affected_rows': 0,
                 'insert_id': None
             }

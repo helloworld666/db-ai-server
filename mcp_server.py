@@ -110,6 +110,8 @@ async def initialize():
         schema_manager=schema_manager,
         sql_validator=sql_validator
     )
+    logger.info(f"[初始化] 创建工具集, db_connection={'已连接' if db_connection else '未连接'}")
+    logger.info(f"[初始化] 完整工具集: {[t.name for t in all_tools]}")
 
     # 创建SQL生成专用工具集（只包含get_database_schema）
     sql_gen_tools = create_database_tools(
@@ -118,6 +120,7 @@ async def initialize():
         sql_validator=sql_validator,
         include_validate=False
     )
+    logger.info(f"[初始化] SQL生成工具集: {[t.name for t in sql_gen_tools]}")
 
     # 创建Agent
     system_prompt = prompt_manager.get_agent_system_prompt()
@@ -341,11 +344,18 @@ def register_tools():
                         "error": "Agent未初始化"
                     }, ensure_ascii=False))]
 
-                logger.info(f"smart_execute收到查询: {query}")
+                logger.info(f"[smart_execute] 收到查询: {query}")
 
                 # 调用db_agent，LLM会自主决定调用哪些工具
                 result = await db_agent.ainvoke(query=query)
+                logger.info(f"[smart_execute] Agent执行完成, success={result.get('success')}, iterations={result.get('iterations')}")
+
                 if result.get("success"):
+                    # 从执行日志中提取最后一个 execute_sql 的结果
+                    execution_log = result.get("execution_log", [])
+                    logger.info(f"[smart_execute] 执行日志条目数: {len(execution_log)}")
+                    for i, log_entry in enumerate(execution_log):
+                        logger.info(f"[smart_execute] 日志[{i}]: tool={log_entry.get('tool')}, args={log_entry.get('args')}")
                     # 从执行日志中提取最后一个 execute_sql 的结果
                     execution_log = result.get("execution_log", [])
                     sql_result = None
