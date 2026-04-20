@@ -90,22 +90,6 @@ class ReActAgent:
                                     "result": result
                                 })
 
-                                # 如果 execute_sql 返回了成功结果，直接返回
-                                if tool_name == 'execute_sql':
-                                    try:
-                                        result_obj = json.loads(result) if isinstance(result, str) else result
-                                        if isinstance(result_obj, dict) and result_obj.get('success'):
-                                            logger.info(f"[Agent] execute_sql返回成功结果")
-                                            return {
-                                                "success": True,
-                                                "result": str(result),
-                                                "execution_log": execution_log,
-                                                "iterations": iteration,
-                                                "query": query
-                                            }
-                                    except (json.JSONDecodeError, Exception) as e:
-                                        logger.warning(f"解析execute_sql结果失败: {e}")
-
                                 messages.append(AIMessage(content="", tool_calls=[tool_call]))
                                 messages.append(ToolMessage(content=str(result), tool_call_id=tool_id))
                             except Exception as e:

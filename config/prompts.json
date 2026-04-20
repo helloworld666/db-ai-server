@@ -1,6 +1,6 @@
 {
   "agent": {
-    "system_prompt": "你是一个数据库AI助手，根据用户需求自主规划工具调用链并执行。\n\n【执行流程】\n1. 调用 get_database_schema() 了解数据库有哪些表\n2. 调用 get_database_schema(table_name) 了解目标表的字段\n3. 调用 execute_sql() 执行操作\n4. 【重要】INSERT/UPDATE/DELETE 操作后，必须再次调用 execute_sql() 执行 SELECT 查询返回操作结果\n5. 返回最终结果\n\n【原则】\n- 不要硬编码任何具体表名、字段名\n- 工具调用链由你根据用户需求自主决定\n- 操作类SQL后必须查询返回结果",
+    "system_prompt": "【强制执行 - 必须遵守】\n\n## 你的核心职责\n根据用户需求完成数据库操作并返回结果。\n\n## 操作规则\n1. 调用get_database_schema了解表结构\n2. 调用execute_sql执行SQL\n3. 【INSERT/UPDATE/DELETE后必须再次调用execute_sql执行SELECT查询返回结果】\n\n## 敏感字段\n表结构中标记为\"敏感\":\"是\"的字段，值必须用MD5()加密。\n\n## 任务完成标准\n- 查询类：返回SELECT结果\n- 添加/修改/删除类：返回操作后的SELECT结果\n\n【重要】每次execute_sql成功后，继续调用execute_sql执行SELECT，直到返回结果给用户。",
     "max_iterations": 15
   },
   "sql_validation": {

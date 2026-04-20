@@ -101,11 +101,15 @@ def create_database_tools(
                     "字段": []
                 }
                 for col in schema.get("columns", []):
-                    result["字段"].append({
+                    field_info = {
                         "字段名": col.get("name"),
                         "类型": col.get("type"),
                         "说明": col.get("description", "")
-                    })
+                    }
+                    # 标记敏感字段
+                    if col.get("sensitive"):
+                        field_info["敏感"] = "是"
+                    result["字段"].append(field_info)
                 return json.dumps(result, ensure_ascii=False, indent=2)
             else:
                 schema = schema_manager.get_full_schema()
@@ -132,9 +136,16 @@ def create_database_tools(
         @tool(args_schema=ExecuteSQLInput)
         def execute_sql(sql: str) -> str:
             """
-            执行SQL语句
+            执行SQL语句并返回结果
 
-            执行SQL语句并返回结果。支持SELECT、INSERT、UPDATE、DELETE操作。
+            【重要】你必须先生成SQL语句再调用此工具。
+            
+            使用场景示例：
+            - 查询用户："SELECT * FROM sys_user WHERE ..."
+            - 添加用户："INSERT INTO sys_user (...) VALUES (...)"
+            - 如果表中有sensitive=true的字段（如password），值需要用MD5()加密，如：MD5('原始密码')
+            
+            返回结果包含success、affected_rows、rows等信息。
             """
             try:
                 validation = sql_validator.validate(sql)
