@@ -2,15 +2,18 @@
 
 **数据库AI服务器** - 基于LangChain v1.0的AI驱动SQL生成系统
 
-> **v7.0重大更新**: 全面遵循LangChain v1.0规范，采用ReAct Agent实现工具链调用。LLM完全自主决定工具调用顺序。
+> **v7.0更新**: 全面遵循LangChain v1.0规范，采用ReAct Agent实现工具链调用。LLM完全自主决定工具调用顺序。
+> - **推荐**: LM Studio + gemma-4-e4b-it 模型（工具调用能力强）
+> - **零硬编码**: 敏感字段、表结构全部从Schema配置动态获取
 
 ## 核心特性
 
 - ✅ **LangChain v1.0**: 使用 `@tool` 装饰器和 Runnable 接口
-- ✅ **零硬编码**: 所有提示词、业务逻辑从配置文件加载
+- ✅ **零硬编码**: 所有提示词、表结构、敏感字段从配置加载
 - ✅ **LLM自主决策**: 工具调用顺序由LLM决定（smart_execute）
 - ✅ **完整SQL支持**: SELECT/UPDATE/INSERT/DELETE
-- ✅ **多引擎支持**: OpenAI/DeepSeek/通义千问/Ollama/LM Studio
+- ✅ **敏感字段处理**: LLM自主决定（INSERT时MD5加密，SELECT时排除敏感字段）
+- ✅ **多引擎支持**: LM Studio/OpenAI/DeepSeek/通义千问
 - ✅ **安全验证**: SQL注入检测、风险评估
 
 ---
@@ -26,7 +29,27 @@ pip install -r requirements.txt
 
 ### 2. 配置推理引擎
 
+**推荐: LM Studio + gemma 模型**（免费、本地、工具调用能力强）
+
+1. 下载安装 [LM Studio](https://lmstudio.ai)
+2. 下载 `gemma-4-e4b-it` 模型（INT4量化，8G显存可用）
+3. 启动 LM Studio 本地服务器（默认端口 62666）
+
 编辑 `config/server_config.json`：
+
+```json
+{
+  "inference_engine": {
+    "type": "lmstudio",
+    "base_url": "http://127.0.0.1:62666/v1",
+    "model": "gemma-4-e4b-it",
+    "temperature": 0.5,
+    "max_tokens": 2000
+  }
+}
+```
+
+**或使用云端API（如 DeepSeek）**:
 
 ```json
 {
@@ -302,10 +325,12 @@ print(result)
 
 | 问题 | 原因 | 解决方法 |
 |------|------|----------|
-| Failed to connect | 推理引擎未启动 | 检查 LM Studio/Ollama 是否运行 |
+| Failed to connect | 推理引擎未启动 | 检查 LM Studio 是否运行 |
 | No valid JSON | 模型响应无效 | 降低 temperature 到 0.1 |
 | Model not found | 模型未加载 | 加载对应模型 |
 | 响应很慢 | 模型太大 | 使用更小的模型 |
+| 工具调用不正确 | 模型对指令遵循能力弱 | 换用 gemma-4-e4b-it（通用模型）而非代码专用模型 |
+| SELECT查询包含敏感字段 | 模型未遵循规则 | 使用通用模型 + 优化提示词 |
 
 ---
 
