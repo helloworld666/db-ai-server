@@ -108,7 +108,8 @@ async def initialize():
     all_tools = create_database_tools(
         db_connection=db_connection,
         schema_manager=schema_manager,
-        sql_validator=sql_validator
+        sql_validator=sql_validator,
+        prompt_manager=prompt_manager
     )
     logger.info(f"[初始化] 创建工具集, db_connection={'已连接' if db_connection else '未连接'}")
     logger.info(f"[初始化] 完整工具集: {[t.name for t in all_tools]}")
@@ -118,6 +119,7 @@ async def initialize():
         db_connection=None,
         schema_manager=schema_manager,
         sql_validator=sql_validator,
+        prompt_manager=prompt_manager,
         include_validate=False
     )
     logger.info(f"[初始化] SQL生成工具集: {[t.name for t in sql_gen_tools]}")
@@ -351,11 +353,6 @@ def register_tools():
                 logger.info(f"[smart_execute] Agent执行完成, success={result.get('success')}, iterations={result.get('iterations')}")
 
                 if result.get("success"):
-                    # 从执行日志中提取最后一个 execute_sql 的结果
-                    execution_log = result.get("execution_log", [])
-                    logger.info(f"[smart_execute] 执行日志条目数: {len(execution_log)}")
-                    for i, log_entry in enumerate(execution_log):
-                        logger.info(f"[smart_execute] 日志[{i}]: tool={log_entry.get('tool')}, args={log_entry.get('args')}")
                     # 从执行日志中提取最后一个 execute_sql 的结果
                     execution_log = result.get("execution_log", [])
                     sql_result = None

@@ -82,13 +82,15 @@ class MCPServer:
         all_tools = create_database_tools(
             db_connection=self.db_connection,
             schema_manager=self.schema_manager,
-            sql_validator=self.sql_validator
+            sql_validator=self.sql_validator,
+            prompt_manager=self.prompt_manager
         )
 
         sql_gen_tools = create_database_tools(
             db_connection=None,
             schema_manager=self.schema_manager,
             sql_validator=self.sql_validator,
+            prompt_manager=self.prompt_manager,
             include_validate=False
         )
 
@@ -118,10 +120,16 @@ class MCPServer:
         @self.server.list_tools()
         async def list_tools() -> ListToolsResult:
             """列出所有可用工具"""
+            # 从配置读取工具描述
+            get_schema_desc = self.prompt_manager.get_tool_description("get_database_schema")
+            execute_desc = self.prompt_manager.get_tool_description("execute_sql")
+            validate_desc = self.prompt_manager.get_tool_description("validate_sql")
+            status_desc = self.prompt_manager.get_tool_description("get_server_status")
+
             tools = [
                 Tool(
                     name="get_database_schema",
-                    description="获取数据库Schema信息（表结构、字段、说明）。无参数时返回所有表的信息。",
+                    description=get_schema_desc or "获取数据库Schema信息（表结构、字段、说明）",
                     inputSchema={"type": "object", "properties": {"table_name": {"type": "string", "description": "可选，指定表名以获取特定表的Schema"}}}
                 ),
                 Tool(
@@ -131,17 +139,17 @@ class MCPServer:
                 ),
                 Tool(
                     name="validate_sql",
-                    description="验证SQL语句是否安全和合规",
+                    description=validate_desc or "验证SQL语句是否安全和合规",
                     inputSchema={"type": "object", "properties": {"sql": {"type": "string", "description": "要验证的SQL语句"}}, "required": ["sql"]}
                 ),
                 Tool(
                     name="execute_sql",
-                    description="执行SQL语句并返回结果",
+                    description=execute_desc or "执行SQL语句并返回结果",
                     inputSchema={"type": "object", "properties": {"sql": {"type": "string", "description": "要执行的SQL语句"}}, "required": ["sql"]}
                 ),
                 Tool(
                     name="get_server_status",
-                    description="获取服务器状态和配置信息",
+                    description=status_desc or "获取服务器状态和配置信息",
                     inputSchema={"type": "object", "properties": {}}
                 )
             ]

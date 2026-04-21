@@ -79,8 +79,6 @@ class ReActAgent:
                         tool_args = tool_call.get('args', {})
                         tool_id = tool_call.get('id', '')
 
-                        logger.info(f"执行工具: {tool_name}({tool_args})")
-
                         if tool_name in self.tools_dict:
                             try:
                                 result = await self.tools_dict[tool_name].ainvoke(tool_args)

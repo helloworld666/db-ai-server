@@ -24,7 +24,8 @@
           "name": "name",
           "type": "varchar(255)",
           "required": true,
-          "description": "用户名"
+          "description": "用户名",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "password",
@@ -41,7 +42,8 @@
         {
           "name": "real_name",
           "type": "varchar(255)",
-          "description": "用户真实名称"
+          "description": "用户真实名称",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "enable",
@@ -72,12 +74,14 @@
           "name": "name",
           "type": "varchar(255)",
           "required": true,
-          "description": "角色名"
+          "description": "角色名",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "description",
           "type": "text",
-          "description": "角色描述"
+          "description": "角色描述",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         }
       ],
       "indexes": []
@@ -102,22 +106,26 @@
         {
           "name": "module_category",
           "type": "varchar(50)",
-          "description": "模块分类"
+          "description": "模块分类",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "module_name",
           "type": "varchar(50)",
-          "description": "模块名称"
+          "description": "模块名称",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "permission_name",
           "type": "varchar(50)",
-          "description": "权限名称"
+          "description": "权限名称",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "permission_code",
           "type": "varchar(50)",
-          "description": "权限编码"
+          "description": "权限编码",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "create_time",
@@ -148,7 +156,8 @@
           "name": "no",
           "type": "varchar(50)",
           "unique": true,
-          "description": "货架编号"
+          "description": "货架编号",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "layers",
@@ -165,13 +174,15 @@
           "type": "varchar(50)",
           "required": true,
           "unique": true,
-          "description": "网关ip地址"
+          "description": "网关ip地址",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "etag_gateway_ip",
           "type": "varchar(50)",
           "unique": true,
-          "description": "电子标签网关地址"
+          "description": "电子标签网关地址",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "etag_gateway_port",
@@ -182,7 +193,8 @@
           "name": "light_gateway_ip",
           "type": "varchar(50)",
           "unique": true,
-          "description": "信号灯网关ip"
+          "description": "信号灯网关ip",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "light_gateway_port",
@@ -258,17 +270,20 @@
         {
           "name": "task_id",
           "type": "varchar(36)",
-          "description": "任务Id"
+          "description": "任务Id",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "alarm_code",
           "type": "varchar(30)",
-          "description": "告警代码"
+          "description": "告警代码",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "res_code",
           "type": "varchar(30)",
-          "description": "资源代码"
+          "description": "资源代码",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "alarm_level",
@@ -278,7 +293,8 @@
         {
           "name": "content",
           "type": "varchar(300)",
-          "description": "告警内容"
+          "description": "告警内容",
+          "sql_constraint": "字符串类型，禁止用 >、>=、<、<=、BETWEEN 比较，只能用 =、IN、LIKE"
         },
         {
           "name": "created_date",

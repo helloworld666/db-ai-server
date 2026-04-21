@@ -79,3 +79,22 @@ class PromptManager:
     def get_examples(self) -> list:
         """获取示例"""
         return self._prompts_cache.get("examples", [])
+
+    def get_tool_config(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """获取指定工具的配置"""
+        tools_config = self._prompts_cache.get("tools", {})
+        return tools_config.get(tool_name)
+
+    def get_tool_description(self, tool_name: str) -> str:
+        """获取指定工具的描述"""
+        tool_config = self.get_tool_config(tool_name)
+        if tool_config:
+            return tool_config.get("description", "")
+        return ""
+
+    def get_tool_constraints(self, tool_name: str) -> list:
+        """获取指定工具的约束"""
+        tool_config = self.get_tool_config(tool_name)
+        if tool_config:
+            return tool_config.get("constraints", [])
+        return []

@@ -112,7 +112,7 @@ class SQLValidator:
             if "LIMIT" not in sql_upper:
                 result["warnings"].append("建议添加LIMIT限制以避免返回过多数据")
 
-            # 检查禁止的模式（排除分号后跟SELECT的情况，这是正常的批量SQL）
+        # 检查禁止的模式（排除分号后跟SELECT的情况，这是正常的批量SQL）
         forbidden_patterns = self._rules_cache.get("forbidden_patterns", [])
         for pattern_info in forbidden_patterns:
             pattern = pattern_info.get("pattern", "")

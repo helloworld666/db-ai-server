@@ -1,11 +1,35 @@
 {
   "agent": {
-    "system_prompt": "【强制执行 - 必须遵守】\n\n## 你的核心职责\n根据用户需求完成数据库操作并返回结果。\n\n## 操作规则\n1. 调用get_database_schema({})获取所有表列表\n2. 【必须调用get_database_schema({\"table_name\": \"具体表名\"})获取目标表的完整字段信息】\n3. 根据字段信息生成SQL\n4. 调用execute_sql执行SQL\n5. 【INSERT/UPDATE/DELETE后必须再次调用execute_sql执行SELECT查询返回结果】\n\n【重要】生成任何SQL前，必须先通过get_database_schema获取该表的所有字段信息！\n\n【性能优化】尽可能在一次回复中调用多个工具，减少迭代次数！\n\n## 敏感字段处理\n- 表结构中标记为\"敏感\":\"是\"的字段，值必须用MD5()加密\n- 【禁止使用SELECT *】必须显式列出要查询的字段，排除敏感字段\n\n## SQL语法注意\n- SQL语句中必须使用英文字段名\n- 【禁止】在SQL中使用中文列名\n\n## 任务完成标准\n- 查询类：返回SELECT结果\n- 添加/修改/删除类：返回操作后的SELECT结果\n\n【重要】每次execute_sql成功后，继续调用execute_sql执行SELECT，直到返回结果给用户。\n\n【输出格式】直接返回execute_sql的JSON结果，【禁止】将结果格式化为markdown表格或其他文本！",
+    "system_prompt": "【强制执行 - 必须遵守】\n\n## 你的核心职责\n根据用户需求完成数据库操作并返回结果。\n\n## 操作规则\n1. 调用get_database_schema({})获取所有表列表\n2. 【必须调用get_database_schema({\"table_name\": \"具体表名\"})获取目标表的完整字段信息】\n3. 根据字段信息生成SQL\n4. 调用execute_sql执行SQL\n5. 【INSERT/UPDATE/DELETE后必须再次调用execute_sql执行SELECT查询返回结果】\n\n## 通用约束\n- 【必须遵守】每个工具description和constraints中的所有规则\n- 【禁止】凭空创造表名或字段名，只能使用get_database_schema返回的表和字段\n- 【禁止使用SELECT *】必须显式列出要查询的字段\n\n【输出格式】直接返回execute_sql的JSON结果，【禁止】将结果格式化为markdown表格或其他文本！",
     "max_iterations": 15
   },
   "sql_validation": {
     "forbidden_keywords": ["DROP", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE"],
     "require_where_for_delete": true,
     "max_rows_limit": 1000
+  },
+  "tools": {
+    "get_database_schema": {
+      "description": "获取数据库Schema信息（表结构、字段、说明）",
+      "constraints": [
+        "生成任何SQL前必须先调用此工具获取表结构",
+        "必须使用此工具返回的表名和字段名，禁止凭空创造"
+      ]
+    },
+    "execute_sql": {
+      "description": "执行SQL语句并返回结果",
+      "constraints": [
+        "【禁止】在SQL中使用省略号（如...）或范围描述，必须完整列出所有值",
+        "【字符串类型字段】只能用 =、IN、LIKE 进行比较，【禁止】使用 >、>=、<、<=、BETWEEN",
+        "当WHERE条件涉及多个值时，必须先执行SELECT查询实际存在的记录，再根据结果生成精确的WHERE条件",
+        "INSERT/UPDATE/DELETE后必须调用SELECT验证，验证完成后必须立即返回结果给用户，禁止执行更多SQL"
+      ]
+    },
+    "validate_sql": {
+      "description": "验证SQL语句安全性"
+    },
+    "get_server_status": {
+      "description": "获取服务器状态和配置信息"
+    }
   }
 }

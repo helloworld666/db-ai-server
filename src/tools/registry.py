@@ -12,6 +12,18 @@ from pydantic import BaseModel, Field
 from ..schema.manager import SchemaManager
 from ..database.connection import DatabaseConnection
 from ..security.validator import SQLValidator
+from ..prompts.manager import PromptManager
+
+
+def _build_tool_description(description: str, constraints: list) -> str:
+    """构建工具描述，包含描述和约束"""
+    desc = description
+    if constraints:
+        desc += "\n\n【约束】"
+        for constraint in constraints:
+            desc += f"\n- {constraint}"
+    return desc
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +69,7 @@ def create_database_tools(
     db_connection: Optional[DatabaseConnection],
     schema_manager: SchemaManager,
     sql_validator: SQLValidator,
+    prompt_manager: Optional[PromptManager] = None,
     include_validate: bool = True
 ) -> List[BaseTool]:
     """
@@ -66,6 +79,7 @@ def create_database_tools(
         db_connection: 数据库连接对象
         schema_manager: Schema管理器
         sql_validator: SQL验证器
+        prompt_manager: 提示词管理器（用于获取工具描述）
         include_validate: 是否包含validate_sql工具
 
     Returns:
@@ -73,23 +87,21 @@ def create_database_tools(
     """
     tools = []
 
+    # 获取工具配置
+    schema_tool_config = prompt_manager.get_tool_config("get_database_schema") if prompt_manager else None
+    execute_tool_config = prompt_manager.get_tool_config("execute_sql") if prompt_manager else None
+    validate_tool_config = prompt_manager.get_tool_config("validate_sql") if prompt_manager else None
+    status_tool_config = prompt_manager.get_tool_config("get_server_status") if prompt_manager else None
+
     # -------------------------------------------------------------------------
     # 1. 获取Schema工具
     # -------------------------------------------------------------------------
-    @tool(args_schema=GetSchemaInput)
+    schema_desc = (schema_tool_config.get("description", "") + "\n\n返回格式：\n- database_name: 数据库名\n- tables: 表列表，每项包含name(表名)、description(描述)、columns(字段列表)\n- columns每项包含：name(字段名)、type(类型)、description(说明)") if schema_tool_config else "获取数据库Schema信息（表结构、字段、说明）"
+    schema_constraints = schema_tool_config.get("constraints", []) if schema_tool_config else []
+    schema_full_desc = _build_tool_description(schema_desc, schema_constraints)
+
+    @tool(args_schema=GetSchemaInput, description=schema_full_desc)
     def get_database_schema(table_name: Optional[str] = None) -> str:
-        """
-        获取数据库Schema信息（表结构、字段、说明）
-
-        返回数据库表结构信息。
-        - 不提供table_name：返回所有表名和描述
-        - 提供table_name：返回该表的详细字段信息
-
-        返回格式：
-        - database_name: 数据库名
-        - tables: 表列表，每项包含name(表名)、description(描述)、columns(字段列表)
-        - columns每项包含：name(字段名)、type(类型)、description(说明)
-        """
         try:
             if table_name:
                 schema = schema_manager.get_table_schema(table_name)
@@ -106,6 +118,9 @@ def create_database_tools(
                         "类型": col.get("type"),
                         "说明": col.get("description", "")
                     }
+                    # 返回SQL约束信息（放在前面，更醒目）
+                    if col.get("sql_constraint"):
+                        field_info["⚠️重要约束"] = col.get("sql_constraint")
                     # 标记敏感字段
                     if col.get("sensitive"):
                         field_info["敏感"] = "是"
@@ -133,20 +148,12 @@ def create_database_tools(
     # 2. 执行SQL工具（仅在提供db_connection时创建）
     # -------------------------------------------------------------------------
     if db_connection is not None:
-        @tool(args_schema=ExecuteSQLInput)
-        def execute_sql(sql: str) -> str:
-            """
-            执行SQL语句并返回结果
+        execute_desc = execute_tool_config.get("description", "执行SQL语句并返回结果") if execute_tool_config else "执行SQL语句并返回结果"
+        execute_constraints = execute_tool_config.get("constraints", []) if execute_tool_config else []
+        execute_full_desc = _build_tool_description(execute_desc, execute_constraints)
 
-            【重要】你必须先生成SQL语句再调用此工具。
-            
-            使用场景示例：
-            - 查询用户："SELECT * FROM sys_user WHERE ..."
-            - 添加用户："INSERT INTO sys_user (...) VALUES (...)"
-            - 如果表中有sensitive=true的字段（如password），值需要用MD5()加密，如：MD5('原始密码')
-            
-            返回结果包含success、affected_rows、rows等信息。
-            """
+        @tool(args_schema=ExecuteSQLInput, description=execute_full_desc)
+        def execute_sql(sql: str) -> str:
             try:
                 validation = sql_validator.validate(sql)
                 if not validation.get("is_valid"):
@@ -175,13 +182,12 @@ def create_database_tools(
     # 3. 验证SQL工具
     # -------------------------------------------------------------------------
     if include_validate:
-        @tool(args_schema=ValidateSQLInput)
-        def validate_sql(sql: str) -> str:
-            """
-            验证SQL语句安全性
+        validate_desc = validate_tool_config.get("description", "验证SQL语句安全性") if validate_tool_config else "验证SQL语句安全性"
+        validate_constraints = validate_tool_config.get("constraints", []) if validate_tool_config else []
+        validate_full_desc = _build_tool_description(validate_desc, validate_constraints)
 
-            检查SQL语句是否存在注入风险、语法错误等问题。
-            """
+        @tool(args_schema=ValidateSQLInput, description=validate_full_desc)
+        def validate_sql(sql: str) -> str:
             try:
                 result = sql_validator.validate(sql)
                 return json.dumps(result, ensure_ascii=False, indent=2)
@@ -194,13 +200,12 @@ def create_database_tools(
     # -------------------------------------------------------------------------
     # 4. 获取服务器状态工具
     # -------------------------------------------------------------------------
-    @tool(args_schema=GetServerStatusInput)
-    def get_server_status() -> str:
-        """
-        获取服务器状态信息
+    status_desc = status_tool_config.get("description", "获取服务器状态信息") if status_tool_config else "获取服务器状态信息"
+    status_constraints = status_tool_config.get("constraints", []) if status_tool_config else []
+    status_full_desc = _build_tool_description(status_desc, status_constraints)
 
-        返回服务器版本、数据库连接状态、表数量等信息。
-        """
+    @tool(args_schema=GetServerStatusInput, description=status_full_desc)
+    def get_server_status() -> str:
         try:
             from datetime import datetime
             status = {
@@ -267,6 +272,7 @@ def create_tool_registry(
     db_connection: Optional[DatabaseConnection],
     schema_manager: SchemaManager,
     sql_validator: SQLValidator,
+    prompt_manager: Optional[PromptManager] = None,
     include_execute: bool = True,
     include_validate: bool = True
 ) -> ToolRegistry:
@@ -277,6 +283,7 @@ def create_tool_registry(
         db_connection: 数据库连接
         schema_manager: Schema管理器
         sql_validator: SQL验证器
+        prompt_manager: 提示词管理器
         include_execute: 是否包含执行SQL工具
         include_validate: 是否包含验证SQL工具
 
@@ -290,11 +297,12 @@ def create_tool_registry(
         db_connection=db_connection if include_execute else None,
         schema_manager=schema_manager,
         sql_validator=sql_validator,
+        prompt_manager=prompt_manager,
         include_validate=include_validate
     )
 
     # 注册工具
-    for tool in tools:
-        registry.register(tool.name, tool)
+    for t in tools:
+        registry.register(t.name, t)
 
     return registry

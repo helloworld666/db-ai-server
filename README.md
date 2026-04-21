@@ -43,7 +43,7 @@ pip install -r requirements.txt
     "type": "lmstudio",
     "base_url": "http://127.0.0.1:62666/v1",
     "model": "gemma-4-e4b-it",
-    "temperature": 0.5,
+    "temperature": 0,
     "max_tokens": 2000
   }
 }
