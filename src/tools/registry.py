@@ -143,6 +143,7 @@ def create_database_tools(
         @tool(args_schema=ExecuteSQLInput, description=execute_full_desc)
         def execute_sql(sql: str) -> str:
             try:
+                logger.info(f"[SQL执行] {sql}")
                 validation = sql_validator.validate(sql)
                 if not validation.get("is_valid"):
                     return json.dumps({

@@ -213,6 +213,7 @@ class MCPServer:
                         return [TextContent(type="text", text=json.dumps({"success": False, "error": "数据库未配置或连接失败"}, ensure_ascii=False))]
 
                     sql = arguments.get("sql", "")
+                    logger.info(f"[SQL执行] {sql}")
                     validation = self.sql_validator.validate(sql)
                     if not validation.get("is_valid"):
                         return [TextContent(type="text", text=json.dumps({"success": False, "error": "SQL验证失败", "validation": validation}, ensure_ascii=False))]
