@@ -197,14 +197,28 @@ def register_tools():
                 }
             ),
             Tool(
-                name="execute_sql",
-                description="执行SQL语句并返回结果",
+                name="execute_dql",
+                description="【仅查询】执行SELECT查询语句，仅读取数据，不修改任何数据",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "sql": {
                             "type": "string",
-                            "description": "要执行的SQL语句"
+                            "description": "SELECT查询语句"
+                        }
+                    },
+                    "required": ["sql"]
+                }
+            ),
+            Tool(
+                name="execute_dml",
+                description="【数据修改】执行INSERT/UPDATE/DELETE语句，会修改数据库数据！",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sql": {
+                            "type": "string",
+                            "description": "INSERT/UPDATE/DELETE语句"
                         }
                     },
                     "required": ["sql"]
@@ -293,7 +307,7 @@ def register_tools():
                 result = sql_validator.validate(sql)
                 return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
-            elif name == "execute_sql":
+            elif name == "execute_dql":
                 if not db_connection:
                     return [TextContent(type="text", text=json.dumps({
                         "success": False,
@@ -301,6 +315,7 @@ def register_tools():
                     }, ensure_ascii=False))]
 
                 sql = arguments.get("sql", "")
+                logger.info(f"[DQL查询] {sql}")
                 validation = sql_validator.validate(sql)
                 if not validation.get("is_valid"):
                     return [TextContent(type="text", text=json.dumps({
@@ -309,7 +324,27 @@ def register_tools():
                         "validation": validation
                     }, ensure_ascii=False))]
 
-                result = db_connection.execute_sql(sql, None)
+                result = db_connection.execute_query(sql)
+                return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+            elif name == "execute_dml":
+                if not db_connection:
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": "数据库未配置或连接失败"
+                    }, ensure_ascii=False))]
+
+                sql = arguments.get("sql", "")
+                logger.info(f"[DML执行] {sql}")
+                validation = sql_validator.validate(sql)
+                if not validation.get("is_valid"):
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": "SQL验证失败",
+                        "validation": validation
+                    }, ensure_ascii=False))]
+
+                result = db_connection.execute_update(sql)
                 return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
             elif name == "get_server_status":
@@ -353,11 +388,12 @@ def register_tools():
                 logger.info(f"[smart_execute] Agent执行完成, success={result.get('success')}, iterations={result.get('iterations')}")
 
                 if result.get("success"):
-                    # 从执行日志中提取最后一个 execute_sql 的结果
+                    # 从执行日志中提取最后一个 DQL/DML 的结果
                     execution_log = result.get("execution_log", [])
                     sql_result = None
                     for log_entry in reversed(execution_log):
-                        if log_entry.get("tool") == "execute_sql":
+                        tool_name = log_entry.get("tool", "")
+                        if tool_name in ("execute_dql", "execute_dml"):
                             try:
                                 tool_result = log_entry.get("result", "")
                                 if isinstance(tool_result, str):

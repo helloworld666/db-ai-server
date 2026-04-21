@@ -122,13 +122,15 @@ class MCPServer:
             """列出所有可用工具"""
             # 从prompt_manager获取工具描述
             get_schema_desc = self.prompt_manager.get_tool_description("get_database_schema")
-            execute_desc = self.prompt_manager.get_tool_description("execute_sql")
+            dql_desc = self.prompt_manager.get_tool_description("execute_dql")
+            dml_desc = self.prompt_manager.get_tool_description("execute_dml")
             validate_desc = self.prompt_manager.get_tool_description("validate_sql")
             status_desc = self.prompt_manager.get_tool_description("get_server_status")
 
             # 从prompt_manager获取参数描述
             get_schema_params = self.prompt_manager.get_tool_param_description("get_database_schema")
-            execute_params = self.prompt_manager.get_tool_param_description("execute_sql")
+            dql_params = self.prompt_manager.get_tool_param_description("execute_dql")
+            dml_params = self.prompt_manager.get_tool_param_description("execute_dml")
             validate_params = self.prompt_manager.get_tool_param_description("validate_sql")
 
             tools = [
@@ -141,11 +143,20 @@ class MCPServer:
                     }
                 ),
                 Tool(
-                    name="execute_sql",
-                    description=execute_desc or "执行SQL语句",
+                    name="execute_dql",
+                    description=dql_desc or "【仅查询】执行SELECT查询",
                     inputSchema={
                         "type": "object",
-                        "properties": {"sql": {"type": "string", "description": execute_params.get("sql", "SQL语句")}},
+                        "properties": {"sql": {"type": "string", "description": dql_params.get("sql", "SELECT查询语句")}},
+                        "required": ["sql"]
+                    }
+                ),
+                Tool(
+                    name="execute_dml",
+                    description=dml_desc or "【数据修改】执行INSERT/UPDATE/DELETE",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"sql": {"type": "string", "description": dml_params.get("sql", "INSERT/UPDATE/DELETE语句")}},
                         "required": ["sql"]
                     }
                 ),
@@ -208,17 +219,30 @@ class MCPServer:
                     result = self.sql_validator.validate(sql)
                     return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
-                elif name == "execute_sql":
+                elif name == "execute_dql":
                     if not self.db_connection:
                         return [TextContent(type="text", text=json.dumps({"success": False, "error": "数据库未配置或连接失败"}, ensure_ascii=False))]
 
                     sql = arguments.get("sql", "")
-                    logger.info(f"[SQL执行] {sql}")
+                    logger.info(f"[DQL查询] {sql}")
                     validation = self.sql_validator.validate(sql)
                     if not validation.get("is_valid"):
                         return [TextContent(type="text", text=json.dumps({"success": False, "error": "SQL验证失败", "validation": validation}, ensure_ascii=False))]
 
-                    result = self.db_connection.execute_sql(sql, None)
+                    result = self.db_connection.execute_query(sql)
+                    return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+                elif name == "execute_dml":
+                    if not self.db_connection:
+                        return [TextContent(type="text", text=json.dumps({"success": False, "error": "数据库未配置或连接失败"}, ensure_ascii=False))]
+
+                    sql = arguments.get("sql", "")
+                    logger.info(f"[DML执行] {sql}")
+                    validation = self.sql_validator.validate(sql)
+                    if not validation.get("is_valid"):
+                        return [TextContent(type="text", text=json.dumps({"success": False, "error": "SQL验证失败", "validation": validation}, ensure_ascii=False))]
+
+                    result = self.db_connection.execute_update(sql)
                     return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
                 elif name == "get_server_status":

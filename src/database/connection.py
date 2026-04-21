@@ -317,7 +317,7 @@ class DatabaseConnection:
         # 收集需要 display_mapping 的字段配置（用于值转换）
         # display_mapping 配置使用原始英文列名作为 key
         column_mappings: Dict[str, Dict[str, Any]] = {}
-        
+
         for table_name in table_names:
             mappings = self._schema_manager.get_table_display_mappings(table_name)
             for col_name, mapping in mappings.items():
@@ -440,7 +440,9 @@ class DatabaseConnection:
         cursor = None
         try:
             cursor = self.connection.cursor()
-            affected_rows = cursor.execute(sql, params)
+            cursor.execute(sql, params)
+            affected_rows = cursor.rowcount
+            logger.info(f"[execute_update] SQL执行完成, rowcount={affected_rows}")
             sql_upper = sql.upper().strip()
             is_insert = sql_upper.startswith('INSERT')
             insert_id = cursor.lastrowid if is_insert else None

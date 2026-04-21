@@ -68,7 +68,8 @@ def create_database_tools(
 
     # 获取工具配置
     schema_tool_config = prompt_manager.get_tool_config("get_database_schema") if prompt_manager else None
-    execute_tool_config = prompt_manager.get_tool_config("execute_sql") if prompt_manager else None
+    dql_tool_config = prompt_manager.get_tool_config("execute_dql") if prompt_manager else None
+    dml_tool_config = prompt_manager.get_tool_config("execute_dml") if prompt_manager else None
     validate_tool_config = prompt_manager.get_tool_config("validate_sql") if prompt_manager else None
     status_tool_config = prompt_manager.get_tool_config("get_server_status") if prompt_manager else None
 
@@ -129,21 +130,20 @@ def create_database_tools(
     tools.append(get_database_schema)
 
     # -------------------------------------------------------------------------
-    # 2. 执行SQL工具（仅在提供db_connection时创建）
+    # 2. DQL工具 - 仅查询（仅在提供db_connection时创建）
     # -------------------------------------------------------------------------
     if db_connection is not None:
-        execute_params = execute_tool_config.get("params", {"sql": "要执行的SQL语句"}) if execute_tool_config else {"sql": "要执行的SQL语句"}
-        execute_desc = execute_tool_config.get("description", "执行SQL语句并返回结果") if execute_tool_config else "执行SQL语句并返回结果"
-        execute_constraints = execute_tool_config.get("constraints", []) if execute_tool_config else []
-        execute_full_desc = _build_tool_description(execute_desc, execute_constraints)
-        
-        # 动态创建输入模型
-        ExecuteSQLInput = _create_input_model("ExecuteSQLInput", execute_params, ["sql"])
+        dql_params = dql_tool_config.get("params", {"sql": "SELECT查询语句"}) if dql_tool_config else {"sql": "SELECT查询语句"}
+        dql_desc = dql_tool_config.get("description", "【仅查询】执行SELECT查询语句") if dql_tool_config else "【仅查询】执行SELECT查询语句"
+        dql_constraints = dql_tool_config.get("constraints", []) if dql_tool_config else []
+        dql_full_desc = _build_tool_description(dql_desc, dql_constraints)
 
-        @tool(args_schema=ExecuteSQLInput, description=execute_full_desc)
-        def execute_sql(sql: str) -> str:
+        DQLInput = _create_input_model("DQLInput", dql_params, ["sql"])
+
+        @tool(args_schema=DQLInput, description=dql_full_desc)
+        def execute_dql(sql: str) -> str:
             try:
-                logger.info(f"[SQL执行] {sql}")
+                logger.info(f"[DQL查询] {sql}")
                 validation = sql_validator.validate(sql)
                 if not validation.get("is_valid"):
                     return json.dumps({
@@ -152,20 +152,46 @@ def create_database_tools(
                         "validation": validation
                     }, ensure_ascii=False)
 
-                sql_type = validation.get("sql_type", "").upper()
-
-                if sql_type == "SELECT":
-                    result = db_connection.execute_query(sql)
-                else:
-                    result = db_connection.execute_update(sql)
-
+                result = db_connection.execute_query(sql)
                 return json.dumps(result, ensure_ascii=False, indent=2)
 
             except Exception as e:
-                logger.error(f"执行SQL失败: {e}")
+                logger.error(f"DQL执行失败: {e}")
                 return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
-        tools.append(execute_sql)
+        tools.append(execute_dql)
+
+    # -------------------------------------------------------------------------
+    # 3. DML工具 - 数据修改（仅在提供db_connection时创建）
+    # -------------------------------------------------------------------------
+    if db_connection is not None:
+        dml_params = dml_tool_config.get("params", {"sql": "INSERT/UPDATE/DELETE语句"}) if dml_tool_config else {"sql": "INSERT/UPDATE/DELETE语句"}
+        dml_desc = dml_tool_config.get("description", "【数据修改】执行INSERT/UPDATE/DELETE语句") if dml_tool_config else "【数据修改】执行INSERT/UPDATE/DELETE语句"
+        dml_constraints = dml_tool_config.get("constraints", []) if dml_tool_config else []
+        dml_full_desc = _build_tool_description(dml_desc, dml_constraints)
+
+        DMLInput = _create_input_model("DMLInput", dml_params, ["sql"])
+
+        @tool(args_schema=DMLInput, description=dml_full_desc)
+        def execute_dml(sql: str) -> str:
+            try:
+                logger.info(f"[DML执行] {sql}")
+                validation = sql_validator.validate(sql)
+                if not validation.get("is_valid"):
+                    return json.dumps({
+                        "success": False,
+                        "error": "SQL验证失败",
+                        "validation": validation
+                    }, ensure_ascii=False)
+
+                result = db_connection.execute_update(sql)
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            except Exception as e:
+                logger.error(f"DML执行失败: {e}")
+                return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+        tools.append(execute_dml)
 
     # -------------------------------------------------------------------------
     # 3. 验证SQL工具

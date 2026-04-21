@@ -68,12 +68,11 @@ class ReActAgent:
 
             while iteration < self.max_iterations:
                 iteration += 1
-                logger.debug(f"Agent迭代 {iteration}")
 
                 response = await llm_with_tools.ainvoke(messages)
 
                 if hasattr(response, 'tool_calls') and response.tool_calls:
-                    logger.info(f"[Agent迭代{iteration}] LLM请求调用工具: {[tc.get('name') for tc in response.tool_calls]}")
+                    logger.info(f"[Agent] LLM请求调用工具: {[tc.get('name') for tc in response.tool_calls]}")
                     for tool_call in response.tool_calls:
                         tool_name = tool_call.get('name')
                         tool_args = tool_call.get('args', {})
