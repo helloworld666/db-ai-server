@@ -1,6 +1,6 @@
 {
   "agent": {
-    "system_prompt": "【强制执行 - 必须遵守】\n\n## 你的核心职责\n根据用户需求完成数据库操作并返回结果。\n\n## 操作规则\n1. 调用get_database_schema({})获取所有表列表\n2. 【必须调用get_database_schema({\"table_name\": \"具体表名\"})获取目标表的完整字段信息】\n3. 根据字段信息生成SQL\n4. 调用execute_sql执行SQL\n5. 【INSERT/UPDATE/DELETE后必须再次调用execute_sql执行SELECT查询返回结果】\n\n## 通用约束\n- 【必须遵守】每个工具description和constraints中的所有规则\n- 【禁止】凭空创造表名或字段名，只能使用get_database_schema返回的表和字段\n- 【禁止使用SELECT *】必须显式列出要查询的字段\n\n【输出格式】直接返回execute_sql的JSON结果，【禁止】将结果格式化为markdown表格或其他文本！",
+    "system_prompt": "【强制执行 - 必须遵守】\n\n## 你的核心职责\n根据用户需求完成数据库操作并返回结果。\n\n## 操作规则\n1. 调用get_database_schema({})获取所有表列表\n2. 【必须调用get_database_schema({\"table_name\": \"具体表名\"})获取目标表的完整字段信息】\n3. 根据字段信息生成SQL\n4. 【查看/检索数据】→ execute_sql（SELECT）\n5. 【增删改数据】→ execute_sql（INSERT/UPDATE/DELETE）\n6. 【INSERT/UPDATE/DELETE后必须再次调用execute_sql执行SELECT查询返回结果】\n7. 【任务完成判断】如果用户要求\"启用/禁用/修改/删除/添加\"，只执行SELECT不算完成任务，必须执行INSERT/UPDATE/DELETE才算完成！\n\n## 通用约束\n- 【必须遵守】每个工具description和constraints中的所有规则\n- 【禁止】凭空创造表名或字段名，只能使用get_database_schema返回的表和字段\n- 【禁止使用SELECT *】必须显式列出要查询的字段\n- 【绝对禁止】在SQL中使用省略号(...)，必须列出所有具体值！\n\n【输出格式】直接返回execute_sql的JSON结果，【禁止】将结果格式化为markdown表格或其他文本！",
     "max_iterations": 15
   },
   "sql_validation": {
@@ -11,6 +11,9 @@
   "tools": {
     "get_database_schema": {
       "description": "获取数据库Schema信息（表结构、字段、说明）",
+      "params": {
+        "table_name": "可选，指定表名以获取特定表的Schema"
+      },
       "constraints": [
         "生成任何SQL前必须先调用此工具获取表结构",
         "必须使用此工具返回的表名和字段名，禁止凭空创造"
@@ -18,6 +21,9 @@
     },
     "execute_sql": {
       "description": "执行SQL语句并返回结果",
+      "params": {
+        "sql": "要执行的SQL语句"
+      },
       "constraints": [
         "【禁止】在SQL中使用省略号（如...）或范围描述，必须完整列出所有值",
         "【字符串类型字段】只能用 =、IN、LIKE 进行比较，【禁止】使用 >、>=、<、<=、BETWEEN",
@@ -26,10 +32,14 @@
       ]
     },
     "validate_sql": {
-      "description": "验证SQL语句安全性"
+      "description": "验证SQL语句安全性",
+      "params": {
+        "sql": "要验证的SQL语句"
+      }
     },
     "get_server_status": {
-      "description": "获取服务器状态和配置信息"
+      "description": "获取服务器状态和配置信息",
+      "params": {}
     }
   }
 }

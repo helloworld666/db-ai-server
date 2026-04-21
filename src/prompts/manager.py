@@ -98,3 +98,10 @@ class PromptManager:
         if tool_config:
             return tool_config.get("constraints", [])
         return []
+
+    def get_tool_param_description(self, tool_name: str) -> Dict[str, str]:
+        """获取指定工具的参数描述"""
+        tool_config = self.get_tool_config(tool_name)
+        if tool_config:
+            return tool_config.get("params", {})
+        return {}

@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, Any, Optional, List, Callable
 from langchain_core.tools import tool, BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 from ..schema.manager import SchemaManager
 from ..database.connection import DatabaseConnection
@@ -25,40 +25,19 @@ def _build_tool_description(description: str, constraints: list) -> str:
     return desc
 
 
+def _create_input_model(model_name: str, params: Dict[str, str], required_fields: List[str] = None) -> type:
+    """动态创建Pydantic输入模型"""
+    fields = {}
+    for param_name, param_desc in params.items():
+        # 如果没有传入 required_fields，则所有参数都是可选的
+        # 只有明确在 required_fields 中指定的才是必需的
+        is_required = required_fields is not None and param_name in required_fields
+        default = ... if is_required else None
+        fields[param_name] = (str, Field(default=default, description=param_desc))
+    return create_model(model_name, **fields)
+
+
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# Pydantic输入模型 - LangChain v1.0 标准
-# ============================================================================
-
-class GetSchemaInput(BaseModel):
-    """获取数据库Schema的输入参数"""
-    table_name: Optional[str] = Field(
-        default=None,
-        description="可选，指定表名。不提供则返回所有表"
-    )
-
-
-class ExecuteSQLInput(BaseModel):
-    """执行SQL的输入参数"""
-    sql: str = Field(
-        ...,
-        description="要执行的SQL语句"
-    )
-
-
-class ValidateSQLInput(BaseModel):
-    """验证SQL的输入参数"""
-    sql: str = Field(
-        ...,
-        description="要验证的SQL语句"
-    )
-
-
-class GetServerStatusInput(BaseModel):
-    """获取服务器状态的输入参数"""
-    pass
 
 
 # ============================================================================
@@ -96,9 +75,14 @@ def create_database_tools(
     # -------------------------------------------------------------------------
     # 1. 获取Schema工具
     # -------------------------------------------------------------------------
-    schema_desc = (schema_tool_config.get("description", "") + "\n\n返回格式：\n- database_name: 数据库名\n- tables: 表列表，每项包含name(表名)、description(描述)、columns(字段列表)\n- columns每项包含：name(字段名)、type(类型)、description(说明)") if schema_tool_config else "获取数据库Schema信息（表结构、字段、说明）"
+    schema_params = schema_tool_config.get("params", {}) if schema_tool_config else {}
+    schema_desc = schema_tool_config.get("description", "获取数据库Schema信息（表结构、字段、说明）") if schema_tool_config else "获取数据库Schema信息（表结构、字段、说明）"
+    schema_desc += "\n\n返回格式：\n- database_name: 数据库名\n- tables: 表列表，每项包含name(表名)、description(描述)、columns(字段列表)\n- columns每项包含：name(字段名)、type(类型)、description(说明)"
     schema_constraints = schema_tool_config.get("constraints", []) if schema_tool_config else []
     schema_full_desc = _build_tool_description(schema_desc, schema_constraints)
+    
+    # 动态创建输入模型，table_name是可选的，不传入required_fields
+    GetSchemaInput = _create_input_model("GetSchemaInput", schema_params)
 
     @tool(args_schema=GetSchemaInput, description=schema_full_desc)
     def get_database_schema(table_name: Optional[str] = None) -> str:
@@ -148,9 +132,13 @@ def create_database_tools(
     # 2. 执行SQL工具（仅在提供db_connection时创建）
     # -------------------------------------------------------------------------
     if db_connection is not None:
+        execute_params = execute_tool_config.get("params", {"sql": "要执行的SQL语句"}) if execute_tool_config else {"sql": "要执行的SQL语句"}
         execute_desc = execute_tool_config.get("description", "执行SQL语句并返回结果") if execute_tool_config else "执行SQL语句并返回结果"
         execute_constraints = execute_tool_config.get("constraints", []) if execute_tool_config else []
         execute_full_desc = _build_tool_description(execute_desc, execute_constraints)
+        
+        # 动态创建输入模型
+        ExecuteSQLInput = _create_input_model("ExecuteSQLInput", execute_params, ["sql"])
 
         @tool(args_schema=ExecuteSQLInput, description=execute_full_desc)
         def execute_sql(sql: str) -> str:
@@ -182,9 +170,13 @@ def create_database_tools(
     # 3. 验证SQL工具
     # -------------------------------------------------------------------------
     if include_validate:
+        validate_params = validate_tool_config.get("params", {"sql": "要验证的SQL语句"}) if validate_tool_config else {"sql": "要验证的SQL语句"}
         validate_desc = validate_tool_config.get("description", "验证SQL语句安全性") if validate_tool_config else "验证SQL语句安全性"
         validate_constraints = validate_tool_config.get("constraints", []) if validate_tool_config else []
         validate_full_desc = _build_tool_description(validate_desc, validate_constraints)
+        
+        # 动态创建输入模型
+        ValidateSQLInput = _create_input_model("ValidateSQLInput", validate_params, ["sql"])
 
         @tool(args_schema=ValidateSQLInput, description=validate_full_desc)
         def validate_sql(sql: str) -> str:
@@ -200,9 +192,13 @@ def create_database_tools(
     # -------------------------------------------------------------------------
     # 4. 获取服务器状态工具
     # -------------------------------------------------------------------------
+    status_params = status_tool_config.get("params", {}) if status_tool_config else {}
     status_desc = status_tool_config.get("description", "获取服务器状态信息") if status_tool_config else "获取服务器状态信息"
     status_constraints = status_tool_config.get("constraints", []) if status_tool_config else []
     status_full_desc = _build_tool_description(status_desc, status_constraints)
+
+    # 动态创建输入模型
+    GetServerStatusInput = _create_input_model("GetServerStatusInput", status_params)
 
     @tool(args_schema=GetServerStatusInput, description=status_full_desc)
     def get_server_status() -> str:

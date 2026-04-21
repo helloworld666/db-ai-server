@@ -120,36 +120,47 @@ class MCPServer:
         @self.server.list_tools()
         async def list_tools() -> ListToolsResult:
             """列出所有可用工具"""
-            # 从配置读取工具描述
+            # 从prompt_manager获取工具描述
             get_schema_desc = self.prompt_manager.get_tool_description("get_database_schema")
             execute_desc = self.prompt_manager.get_tool_description("execute_sql")
             validate_desc = self.prompt_manager.get_tool_description("validate_sql")
             status_desc = self.prompt_manager.get_tool_description("get_server_status")
 
+            # 从prompt_manager获取参数描述
+            get_schema_params = self.prompt_manager.get_tool_param_description("get_database_schema")
+            execute_params = self.prompt_manager.get_tool_param_description("execute_sql")
+            validate_params = self.prompt_manager.get_tool_param_description("validate_sql")
+
             tools = [
                 Tool(
                     name="get_database_schema",
-                    description=get_schema_desc or "获取数据库Schema信息（表结构、字段、说明）",
-                    inputSchema={"type": "object", "properties": {"table_name": {"type": "string", "description": "可选，指定表名以获取特定表的Schema"}}}
-                ),
-                Tool(
-                    name="generate_sql",
-                    description="根据自然语言描述生成并执行SQL语句。支持查询和修改操作。",
-                    inputSchema={"type": "object", "properties": {"query": {"type": "string", "description": "用户自然语言描述"}}, "required": ["query"]}
-                ),
-                Tool(
-                    name="validate_sql",
-                    description=validate_desc or "验证SQL语句是否安全和合规",
-                    inputSchema={"type": "object", "properties": {"sql": {"type": "string", "description": "要验证的SQL语句"}}, "required": ["sql"]}
+                    description=get_schema_desc or "获取数据库Schema信息",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"table_name": {"type": "string", "description": get_schema_params.get("table_name", "可选，表名")}},
+                    }
                 ),
                 Tool(
                     name="execute_sql",
-                    description=execute_desc or "执行SQL语句并返回结果",
-                    inputSchema={"type": "object", "properties": {"sql": {"type": "string", "description": "要执行的SQL语句"}}, "required": ["sql"]}
+                    description=execute_desc or "执行SQL语句",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"sql": {"type": "string", "description": execute_params.get("sql", "SQL语句")}},
+                        "required": ["sql"]
+                    }
+                ),
+                Tool(
+                    name="validate_sql",
+                    description=validate_desc or "验证SQL安全性",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"sql": {"type": "string", "description": validate_params.get("sql", "SQL语句")}},
+                        "required": ["sql"]
+                    }
                 ),
                 Tool(
                     name="get_server_status",
-                    description=status_desc or "获取服务器状态和配置信息",
+                    description=status_desc or "获取服务器状态",
                     inputSchema={"type": "object", "properties": {}}
                 )
             ]
