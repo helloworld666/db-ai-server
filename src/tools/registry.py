@@ -81,7 +81,7 @@ def create_database_tools(
     schema_desc += "\n\n返回格式：\n- database_name: 数据库名\n- tables: 表列表，每项包含name(表名)、description(描述)、columns(字段列表)\n- columns每项包含：name(字段名)、type(类型)、description(说明)"
     schema_constraints = schema_tool_config.get("constraints", []) if schema_tool_config else []
     schema_full_desc = _build_tool_description(schema_desc, schema_constraints)
-    
+
     # 动态创建输入模型，table_name是可选的，不传入required_fields
     GetSchemaInput = _create_input_model("GetSchemaInput", schema_params)
 
@@ -92,37 +92,47 @@ def create_database_tools(
                 schema = schema_manager.get_table_schema(table_name)
                 if schema is None:
                     return f"错误：表 '{table_name}' 不存在。请使用不带参数的调用获取所有表名。"
-                result = {
-                    "表名": schema.get("name"),
-                    "描述": schema.get("description", ""),
-                    "字段": []
-                }
+
+                # 纯文本格式，明确区分字段名和说明
+                lines = []
+                lines.append(f"表: {schema.get('name')}")
+                lines.append(f"描述: {schema.get('description', '')}\n")
+                lines.append("字段列表:")
+                lines.append("-" * 40)
+
                 for col in schema.get("columns", []):
-                    field_info = {
-                        "字段名": col.get("name"),
-                        "类型": col.get("type"),
-                        "说明": col.get("description", "")
-                    }
-                    # 返回SQL约束信息（放在前面，更醒目）
-                    if col.get("sql_constraint"):
-                        field_info["⚠️重要约束"] = col.get("sql_constraint")
-                    # 标记敏感字段
+                    field_name = col.get("name")
+                    field_type = col.get("type")
+                    field_desc = col.get("description", "")
+
+                    line = f"- {field_name} ({field_type})"
+                    if col.get("primary_key"):
+                        line += " [主键]"
+                    if col.get("required"):
+                        line += " [必填]"
+                    if col.get("unique"):
+                        line += " [唯一]"
                     if col.get("sensitive"):
-                        field_info["敏感"] = "是"
-                    result["字段"].append(field_info)
-                return json.dumps(result, ensure_ascii=False, indent=2)
+                        line += " [敏感]"
+                    line += f" - {field_desc}"
+                    lines.append(line)
+
+                    if col.get("sql_constraint"):
+                        lines.append(f"  ⚠️ {col.get('sql_constraint')}")
+
+                lines.append("-" * 40)
+
+                return "\n".join(lines)
             else:
                 schema = schema_manager.get_full_schema()
-                result = {
-                    "数据库": schema.get("database_name", ""),
-                    "所有表": []
-                }
+                lines = []
+                lines.append(f"数据库: {schema.get('database_name', '')}")
+                lines.append(f"类型: {schema.get('database_type', '')}\n")
+                lines.append("所有表:")
+                lines.append("-" * 40)
                 for table in schema.get("tables", []):
-                    result["所有表"].append({
-                        "表名": table.get("name"),
-                        "描述": table.get("description", "")
-                    })
-                return json.dumps(result, ensure_ascii=False, indent=2)
+                    lines.append(f"- {table.get('name')}: {table.get('description', '')}")
+                return "\n".join(lines)
         except Exception as e:
             logger.error(f"获取Schema失败: {e}")
             return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
@@ -201,7 +211,7 @@ def create_database_tools(
         validate_desc = validate_tool_config.get("description", "验证SQL语句安全性") if validate_tool_config else "验证SQL语句安全性"
         validate_constraints = validate_tool_config.get("constraints", []) if validate_tool_config else []
         validate_full_desc = _build_tool_description(validate_desc, validate_constraints)
-        
+
         # 动态创建输入模型
         ValidateSQLInput = _create_input_model("ValidateSQLInput", validate_params, ["sql"])
 
